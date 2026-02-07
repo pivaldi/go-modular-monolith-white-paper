@@ -1139,6 +1139,7 @@ Chaque service utilise une clean architecture avec des couches claires et un flu
 ### L'Hexagone : Ports et Adaptateurs
 
 ```mermaid
+%%{init: {'flowchart': {'subGraphTitleMargin': {'top': 0, 'bottom': 20}}}}%%
 graph TB
     inbound["Adaptateurs Entrants - HTTP, Connect, CLI"]
 

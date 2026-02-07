@@ -1184,6 +1184,7 @@ Each service uses Domain-Driven Design and Hexagonal Architecture internally. Th
 ### The Hexagon: Ports and Adapters
 
 ```mermaid
+%%{init: {'flowchart': {'subGraphTitleMargin': {'top': 0, 'bottom': 20}}}}%%
 graph TB
     inbound["Inbound Adapters - HTTP, Connect, CLI"]
 
