@@ -206,7 +206,7 @@ graph TB
     style services fill:#ffe1e1
 ```
 
-**Development (In-Process):**
+**In-Process:**
 ```mermaid
 graph LR
     authsvc["authsvc"] -->|calls| inproc_client["bridge.InprocClient"]
@@ -221,7 +221,7 @@ graph LR
     style authorsvc_internal fill:#ffe1e1
 ```
 
-**Production (Distributed):**
+**Distributed:**
 ```mermaid
 graph LR
     authsvc["authsvc"] -->|HTTP request| connect_client["Connect Client"]
@@ -1186,13 +1186,13 @@ Each service uses Domain-Driven Design and Hexagonal Architecture internally. Th
 ```mermaid
 %%{init: {'flowchart': {'subGraphTitleMargin': {'top': 0, 'bottom': 20}}}}%%
 graph TB
-    inbound["Inbound Adapters - HTTP, Connect, CLI"]
+    inbound["Inbound Adapters<br/>HTTP, Connect, CLI"]
 
-    subgraph application["Application Layer - Use Cases, Ports"]
+    subgraph application["Application Layer<br/>Use Cases, Ports"]
         domain["Domain Layer - Pure Logic"]
     end
 
-    outbound["Outbound Adapters - DB, Cache, Service Clients"]
+    outbound["Outbound Adapters<br/>DB, Cache, Service Clients"]
 
     inbound --> application
     application --> outbound
@@ -1756,7 +1756,7 @@ Before implementing network transport, let's understand how it parallels the in-
 
 **Parallel Structure:**
 
-**IN-PROCESS (Development):**
+**IN-PROCESS:**
 ```mermaid
 graph TB
     subgraph consumer["Consumer Service (authsvc)"]
@@ -1787,7 +1787,7 @@ graph TB
     style provider fill:#ffe1e1
 ```
 
-**NETWORK (Production):**
+**NETWORK:**
 ```mermaid
 graph TB
     subgraph consumer["Consumer Service (authsvc)"]
@@ -1842,7 +1842,7 @@ func main() {
     var authorClient ports.AuthorClient
 
     if cfg.UseInProcessBridge {
-        // ===== OPTION 1: In-Process (Development) =====
+        // ===== OPTION 1: In-Process =====
         // Get shared InprocServer from authorsvc
         authorServer := getAuthorServiceInprocServer()
 
@@ -1854,7 +1854,7 @@ func main() {
         // Performance: <1μs, zero serialization
 
     } else {
-        // ===== OPTION 2: Network (Production) =====
+        // ===== OPTION 2: Network =====
         // Create HTTP client to remote service
         authorClient = connect.NewClient(
             cfg.AuthorServiceURL, // e.g., "https://author-service:8080"
@@ -1951,7 +1951,7 @@ author_service_url: "https://author-service.internal:8080"
 - ✓ Early prototyping
 
 **Network (via Connect):**
-- ✓ Production with independent scaling
+- ✓ Need independent scaling
 - ✓ Services owned by different teams
 - ✓ Different deployment schedules
 - ✓ Geographic distribution
@@ -3258,7 +3258,7 @@ defer span.End()
 **Development:**
 * All services run on localhost (in-process bridges)
 * Single `mise run dev` command
-* Hot reload via `air`
+* Hot reload via [air](https://github.com/air-verse/air).
 
 **Production Options:**
 
@@ -3279,10 +3279,9 @@ go build -o bin/authorsvc ./services/authorsvc/cmd/authorsvc
 ```
 
 **Option 3: Hybrid (mix of co-located and distributed)**
-```bash
-# Co-locate non-critical services
-# Distribute performance-critical services
-```
+
+* Co-locate non-critical services
+* Distribute performance-critical services
 
 ## Decision Criteria
 
@@ -3695,3 +3694,8 @@ If you're building a Go system with:
 ### Testing
 * *Growing Object-Oriented Software, Guided by Tests* by Steve Freeman & Nat Pryce
 * [Testing in Go](https://go.dev/doc/tutorial/add-a-test)
+
+### Tools
+* [arch-go](https://github.com/arch-go/arch-go): Architectural testing for Go
+* [go-cleanarch](https://github.com/roblaszczak/go-cleanarch): Validating layer dependencies
+* [godepgraph](https://github.com/kisielk/godepgraph): Visualizing dependency graphs

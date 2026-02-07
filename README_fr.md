@@ -48,8 +48,8 @@ Les approches microservices-first imposent des coûts avant qu'ils ne soient jus
 **3. Chemins de Migration Difficiles**
 
 Les patterns existants rendent l'évolution douloureuse :
-* Monolithe → Microservices : Nécessite une réécriture complète des couches de communication
-* Microservices → Monolithe : Perd les frontières de services lors de la consolidation
+* Monolithe -> Microservices : Nécessite une réécriture complète des couches de communication
+* Microservices -> Monolithe : Perd les frontières de services lors de la consolidation
 * Dans les deux sens : Risque élevé, délais longs, perturbation métier
 
 ### Que serait l'idéal ?
@@ -78,7 +78,7 @@ Avant de présenter le pattern recommandé, comparons les approches architectura
 
 ### 1. Monolithe en Couches Traditionnel
 
-**Structure :** Module unique, architecture en couches (handlers → services → repositories).
+**Structure :** Module unique, architecture en couches (handlers -> services -> repositories).
 
 **Avantages :**
 * Configuration la plus simple
@@ -206,7 +206,7 @@ graph TB
     style services fill:#ffe1e1
 ```
 
-**Développement (In-Process) :**
+**In-Process :**
 ```mermaid
 graph LR
     authsvc["authsvc"] -->|appelle| inproc_client["bridge.InprocClient"]
@@ -221,7 +221,7 @@ graph LR
     style authorsvc_internal fill:#ffe1e1
 ```
 
-**Production (Distribué) :**
+**Distribué :**
 ```mermaid
 graph LR
     authsvc["authsvc"] -->|requête HTTP| connect_client["Connect Client"]
@@ -369,7 +369,7 @@ service-manager/
 │   │       │   │             # Implémente les ports de la couche application
 │   │       │   │
 │   │       │   ├── inbound/  # Adaptateurs entrants (primaires/pilotants)
-│   │       │   │   │         # Monde externe → Application
+│   │       │   │   │         # Monde externe -> Application
 │   │       │   │   │
 │   │       │   │   ├── http/ # Adaptateur HTTP REST
 │   │       │   │   │   ├── server.go
@@ -386,7 +386,7 @@ service-manager/
 │   │       │   │           └── auth_handler.go
 │   │       │   │
 │   │       │   └── outbound/ # Adaptateurs sortants (secondaires/pilotés)
-│   │       │       │         # Application → Systèmes externes
+│   │       │       │         # Application -> Systèmes externes
 │   │       │       │
 │   │       │       ├── persistence/  # Adaptateurs de base de données
 │   │       │       │   ├── postgres/
@@ -741,7 +741,7 @@ graph TB
    - Utilisation efficace de la mémoire
 
 4. **Zéro Surcharge Réseau** :
-   - InprocClient → InprocServer est un appel de fonction direct
+   - InprocClient -> InprocServer est un appel de fonction direct
    - Pas de sérialisation, pas de HTTP, pas de latence réseau
    - Performance identique aux imports internes directs (mais avec des frontières !)
 
@@ -1063,7 +1063,7 @@ func main() {
    - Les violations sont détectées au moment de la compilation, pas à l'exécution ou lors de la revue
 
 2. **Zéro Surcharge Réseau**
-   - Client in-process → serveur est un appel de fonction direct
+   - Client in-process -> serveur est un appel de fonction direct
    - Pas de sérialisation, pas de stack HTTP, pas de latence réseau
    - Performance équivalente au monolithe à module partagé
 
@@ -1141,13 +1141,13 @@ Chaque service utilise une clean architecture avec des couches claires et un flu
 ```mermaid
 %%{init: {'flowchart': {'subGraphTitleMargin': {'top': 0, 'bottom': 20}}}}%%
 graph TB
-    inbound["Adaptateurs Entrants - HTTP, Connect, CLI"]
+    inbound["Adaptateurs Entrants<br/>HTTP, Connect, CLI"]
 
-    subgraph application["Couche Application - Cas d'Usage, Ports"]
-        domain["Couche Domaine - Logique Pure"]
+    subgraph application["Couche Application<br/>Cas d'Usage, Ports"]
+        domain["Couche Domaine<br/>Logique Pure"]
     end
 
-    outbound["Adaptateurs Sortants - BD, Cache, Clients de Service"]
+    outbound["Adaptateurs Sortants<br/>BD, Cache, Clients de Service"]
 
     inbound --> application
     application --> outbound
@@ -1442,7 +1442,7 @@ Avant d'implémenter le transport réseau, comprenons comment il est parallèle 
 
 **Structure Parallèle :**
 
-**IN-PROCESS (Développement) :**
+**IN-PROCESS :**
 ```mermaid
 graph TB
     subgraph consumer["Service Consommateur (authsvc)"]
@@ -1473,7 +1473,7 @@ graph TB
     style provider fill:#ffe1e1
 ```
 
-**RÉSEAU (Production) :**
+**RÉSEAU :**
 ```mermaid
 graph TB
     subgraph consumer["Service Consommateur (authsvc)"]
@@ -1528,7 +1528,7 @@ func main() {
     var authorClient ports.AuthorClient
 
     if cfg.UseInProcessBridge {
-        // ===== OPTION 1 : In-Process (Développement) =====
+        // ===== OPTION 1 : In-Process =====
         // Obtenir l'InprocServer partagé depuis authorsvc
         authorServer := getAuthorServiceInprocServer()
 
@@ -1540,7 +1540,7 @@ func main() {
         // Performance : <1μs, zéro sérialisation
 
     } else {
-        // ===== OPTION 2 : Réseau (Production) =====
+        // ===== OPTION 2 : Réseau =====
         // Créer un client HTTP vers le service distant
         authorClient = connect.NewClient(
             cfg.AuthorServiceURL, // par ex., "https://author-service:8080"
@@ -2412,7 +2412,7 @@ func hasCycle(module string, graph map[string][]string, visited, recStack map[st
 
 // checkLayerDependencies s'assure que les couches ne dépendent que des couches internes
 func checkLayerDependencies() error {
-    // Définir l'ordre des couches (interne → externe)
+    // Définir l'ordre des couches (interne -> externe)
     // Les couches internes peuvent être importées par les externes, mais pas vice versa
 
     layerRules := map[string][]string{
@@ -2723,7 +2723,7 @@ type CreateArticleCommand struct {
 
 **Flux Correct :**
 ```
-Application → Port (possède) → Adaptateur (implémente) → Bridge (utilise) → Autre Service
+Application -> Port (possède) -> Adaptateur (implémente) -> Bridge (utilise) -> Autre Service
 ```
 
 **Pourquoi cela arrive :** Mauvaise compréhension de l'architecture hexagonale, traiter les bridges comme "juste une autre dépendance".
@@ -2843,30 +2843,30 @@ func GetInternalState(service interface{}) map[string]interface{} {
    - Recueillir les retours de l'équipe
    - Affiner les patterns basés sur l'expérience
 
-### Ressources
+## Références et lectures complémentaires
 
-**Go Workspaces :**
-* [Documentation Officielle Go Workspaces](https://go.dev/doc/tutorial/workspaces)
+### Go Workspaces
+* [Go Workspace Tutorial](https://go.dev/doc/tutorial/workspaces)
 * [Go Modules Reference](https://go.dev/ref/mod)
 
-**Connect (gRPC) :**
-* [Connect pour Go](https://connectrpc.com/docs/go/getting-started)
-* [Buf Schema Registry](https://buf.build/docs)
-
-**Patterns Architecturaux :**
+### Domain-Driven Design
 * *Domain-Driven Design* par Eric Evans
-* *Clean Architecture* par Robert C. Martin
-* *Building Microservices* par Sam Newman
+* *Implementing Domain-Driven Design* de Vaughn Vernon
 
-**Outils :**
-* [arch-go](https://github.com/fdaines/arch-go) - Tests d'architecture pour Go
+### Hexagonal Architecture
+* [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) par Alistair Cockburn
+* *Clean Architecture* de Robert C. Martin
+
+### Protocol Buffers & Connect
+* [Protocol Buffers Documentation](https://protobuf.dev/)
+* [Connect RPC](https://connectrpc.com/)
+* [Buf](https://buf.build/)
+
+### Tests
+* *Growing Object-Oriented Software, Guided by Tests* by Steve Freeman & Nat Pryce
+* [Testing in Go](https://go.dev/doc/tutorial/add-a-test)
+
+### Outils
+* [arch-go](https://github.com/arch-go/arch-go) - Tests d'architecture pour Go
 * [go-cleanarch](https://github.com/roblaszczak/go-cleanarch) - Validation de dépendances de couches
 * [godepgraph](https://github.com/kisielk/godepgraph) - Visualisation de graphes de dépendances
-
----
-
-**Contributeurs :**
-Ce livre blanc évolue avec la communauté. Les contributions, retours et partages d'expérience sont les bienvenus.
-
-**Licence :**
-Ce document est partagé librement pour usage éducatif et commercial.
