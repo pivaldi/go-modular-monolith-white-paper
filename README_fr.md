@@ -655,7 +655,7 @@ graph TB
     end
 
     inproc_adapter -->|appelle| inproc_client
-    inproc_server -->|PEUT importer authorsvc/internal<br/>(permission spéciale!)| query
+    inproc_server -->|"PEUT importer authorsvc/internal<br/>(permission spéciale!)"| query
 
     style consumer fill:#e1f5ff
     style bridge fill:#fff4e1
@@ -1136,6 +1136,27 @@ type AuthorDTO struct {
 
 Chaque service utilise une clean architecture avec des couches claires et un flux de dépendances contrôlé.
 
+### L'Hexagone : Ports et Adaptateurs
+
+```mermaid
+graph TB
+    inbound["Adaptateurs Entrants - HTTP, Connect, CLI"]
+
+    subgraph application["Couche Application - Cas d'Usage, Ports"]
+        domain["Couche Domaine - Logique Pure"]
+    end
+
+    outbound["Adaptateurs Sortants - BD, Cache, Clients de Service"]
+
+    inbound --> application
+    application --> outbound
+
+    style inbound fill:#e1f5ff
+    style application fill:#fff4e1
+    style domain fill:#ffe1e1
+    style outbound fill:#e1ffe1
+```
+
 ### Les Couches
 
 **1. Couche Domaine (centre)**
@@ -1444,7 +1465,7 @@ graph TB
     end
 
     adapter1 -.->|appel de fonction| inproc_client
-    inproc_server -.->|appel de fonction<br/>(appel direct)| app_layer
+    inproc_server -.->|"appel de fonction<br/>(appel direct)"| app_layer
 
     style consumer fill:#e1f5ff
     style bridge fill:#fff4e1
@@ -1472,8 +1493,8 @@ graph TB
         handler --> app_layer2
     end
 
-    adapter2 -->|requête HTTP<br/>charge utile protobuf| network
-    network -->|réponse HTTP| handler
+    adapter2 -->|"requête HTTP<br/>charge utile protobuf"| network
+    network -->|"réponse HTTP"| handler
 
     style consumer fill:#e1f5ff
     style network fill:#f0f0f0

@@ -686,7 +686,7 @@ graph TB
     end
 
     inproc_adapter -->|calls| inproc_client
-    inproc_server -->|CAN import authorsvc/internal<br/>(special permission!)| query
+    inproc_server -->|"CAN import authorsvc/internal<br/>(special permission!)"| query
 
     style consumer fill:#e1f5ff
     style bridge fill:#fff4e1
@@ -1183,27 +1183,23 @@ Each service uses Domain-Driven Design and Hexagonal Architecture internally. Th
 
 ### The Hexagon: Ports and Adapters
 
-```
-                    ┌─────────────────────────────┐
-                    │    Inbound Adapters         │
-                    │  (HTTP, Connect, CLI)       │
-                    └──────────┬──────────────────┘
-                               │
-                    ┌──────────▼──────────────────┐
-                    │   Application Layer         │
-                    │   (Use Cases, Ports)        │
-                    │                             │
-                    │   ┌─────────────────┐      │
-                    │   │  Domain Layer   │      │
-                    │   │ (Pure Logic)    │      │
-                    │   └─────────────────┘      │
-                    │                             │
-                    └──────────┬──────────────────┘
-                               │
-                    ┌──────────▼──────────────────┐
-                    │   Outbound Adapters         │
-                    │ (DB, Cache, Service Clients)│
-                    └─────────────────────────────┘
+```mermaid
+graph TB
+    inbound["Inbound Adapters - HTTP, Connect, CLI"]
+
+    subgraph application["Application Layer - Use Cases, Ports"]
+        domain["Domain Layer - Pure Logic"]
+    end
+
+    outbound["Outbound Adapters - DB, Cache, Service Clients"]
+
+    inbound --> application
+    application --> outbound
+
+    style inbound fill:#e1f5ff
+    style application fill:#fff4e1
+    style domain fill:#ffe1e1
+    style outbound fill:#e1ffe1
 ```
 
 ### Domain Layer: Pure Business Logic
@@ -1783,7 +1779,7 @@ graph TB
     end
 
     adapter1 -.->|function call| inproc_client
-    inproc_server -.->|function call<br/>(direct call)| app_layer
+    inproc_server -.->|"function call<br/>(direct call)"| app_layer
 
     style consumer fill:#e1f5ff
     style bridge fill:#fff4e1
@@ -1811,8 +1807,8 @@ graph TB
         handler --> app_layer2
     end
 
-    adapter2 -->|HTTP request<br/>protobuf payload| network
-    network -->|HTTP response| handler
+    adapter2 -->|"HTTP request<br/>protobuf payload"| network
+    network -->|"HTTP response"| handler
 
     style consumer fill:#e1f5ff
     style network fill:#f0f0f0
