@@ -10,19 +10,19 @@ Le choix entre monolithes et microservices est bien documenté : les monolithes
 
 ### Ce que ce Pattern Fournit
 
-* **Frontières architecturales fortes** imposées par le compilateur Go
-* **Performance in-process** pendant le développement et lorsque les services sont co-localisés
-* **Distribution flexible** lorsque les services nécessitent une mise à l'échelle indépendante
-* **Chemin de migration clair** du monolithe au distribué sans réécriture
-* **DDD et architecture hexagonale** pour une logique métier maintenable
-* **Contrats protobuf optionnels** pour quand vous avez besoin de protocoles réseau
+- **Frontières architecturales fortes** imposées par le compilateur Go
+- **Performance in-process** pendant le développement et lorsque les services sont co-localisés
+- **Distribution flexible** lorsque les services nécessitent une mise à l'échelle indépendante
+- **Chemin de migration clair** du monolithe au distribué sans réécriture
+- **DDD et architecture hexagonale** pour une logique métier maintenable
+- **Contrats protobuf optionnels** pour quand vous avez besoin de protocoles réseau
 
 ### À qui s'adresse ce Pattern
 
-* Équipes construisant de nouveaux systèmes où la distribution future est possible mais pas immédiate
-* Organisations consolidant des microservices qui auraient dû être un monolithe
-* Projets migrant de monolithes fortement couplés vers de meilleures frontières
-* Développeurs évaluant des approches architecturales pour des systèmes Go de taille moyenne à grande (5-20 développeurs)
+- Équipes construisant de nouveaux systèmes où la distribution future est possible mais pas immédiate
+- Organisations consolidant des microservices qui auraient dû être un monolithe
+- Projets migrant de monolithes fortement couplés vers de meilleures frontières
+- Développeurs évaluant des approches architecturales pour des systèmes Go de taille moyenne à grande (5-20 développeurs)
 
 Ce n'est pas la seule approche valide. Nous la comparerons avec des alternatives et discuterons quand ce pattern convient et quand il ne convient pas.
 
@@ -33,34 +33,34 @@ Ce n'est pas la seule approche valide. Nous la comparerons avec des alternatives
 **1. Érosion des Frontières dans les Monolithes Traditionnels**
 
 Les monolithes Go classiques s'appuient sur des conventions pour maintenir les frontières :
-* Les packages `internal/` offrent une certaine protection mais rien n'empêche `serviceA` d'importer `serviceB/internal` avec des imports relatifs
-* Les violations architecturales se produisent graduellement et silencieusement
-* Le refactoring devient de plus en plus difficile
+- Les packages `internal/` offrent une certaine protection mais rien n'empêche `serviceA` d'importer `serviceB/internal` avec des imports relatifs
+- Les violations architecturales se produisent graduellement et silencieusement
+- Le refactoring devient de plus en plus difficile
 
 **2. Complexité de Distribution Prématurée**
 
 Les approches microservices-first imposent des coûts avant qu'ils ne soient justifiés :
-* Surcharge opérationnelle (Kubernetes, service mesh, monitoring)
-* Préoccupations de fiabilité réseau dès le premier jour
-* Transactions distribuées et cohérence éventuelle
-* Complexité de l'environnement de développement
+- Surcharge opérationnelle (Kubernetes, service mesh, monitoring)
+- Préoccupations de fiabilité réseau dès le premier jour
+- Transactions distribuées et cohérence éventuelle
+- Complexité de l'environnement de développement
 
 **3. Chemins de Migration Difficiles**
 
 Les patterns existants rendent l'évolution douloureuse :
-* Monolithe -> Microservices : Nécessite une réécriture complète des couches de communication
-* Microservices -> Monolithe : Perd les frontières de services lors de la consolidation
-* Dans les deux sens : Risque élevé, délais longs, perturbation métier
+- Monolithe -> Microservices : Nécessite une réécriture complète des couches de communication
+- Microservices -> Monolithe : Perd les frontières de services lors de la consolidation
+- Dans les deux sens : Risque élevé, délais longs, perturbation métier
 
 ### Que serait l'idéal ?
 
 Un pattern idéal fournirait :
-* ✓ Frontières de services imposées par le compilateur
-* ✓ Performance in-process lorsque approprié
-* ✓ Distribution réseau lorsque nécessaire
-* ✓ Migration incrémentale (pas de réécriture big bang)
-* ✓ Simplicité de développement (expérience monorepo)
-* ✓ Flexibilité de production (déployer ensemble ou séparément)
+- Frontières de services imposées par le compilateur
+- Performance in-process lorsque approprié
+- Distribution réseau lorsque nécessaire
+- Migration incrémentale (pas de réécriture big bang)
+- Simplicité de développement (expérience monorepo)
+- Flexibilité de production (déployer ensemble ou séparément)
 
 ## Approches Alternatives
 
@@ -81,16 +81,16 @@ Avant de présenter le pattern recommandé, comparons les approches architectura
 **Structure :** Module unique, architecture en couches (handlers -> services -> repositories).
 
 **Avantages :**
-* Configuration la plus simple
-* Développement rapide
-* Transactions faciles
-* Meilleure performance initiale
+- Configuration la plus simple
+- Développement rapide
+- Transactions faciles
+- Meilleure performance initiale
 
 **Inconvénients :**
-* Pas de frontières (tout peut appeler tout)
-* Difficile à diviser plus tard
-* Conflits de merge entre équipes
-* Impossible de mettre à l'échelle les services indépendamment
+- Pas de frontières (tout peut appeler tout)
+- Difficile à diviser plus tard
+- Conflits de merge entre équipes
+- Impossible de mettre à l'échelle les services indépendamment
 
 **Quand l'utiliser :** Développeur solo, CRUD simple, MVP, domaine incertain.
 
@@ -99,16 +99,16 @@ Avant de présenter le pattern recommandé, comparons les approches architectura
 **Structure :** Un seul `go.mod`, les services utilisent des packages `internal/` et des façades publiques.
 
 **Avantages :**
-* Configuration simple
-* Zéro surcharge réseau
-* Gestion partagée des dépendances
-* Itération rapide
+- Configuration simple
+- Zéro surcharge réseau
+- Gestion partagée des dépendances
+- Itération rapide
 
 **Inconvénients :**
-* Frontières faibles (peuvent être violées)
-* Repose sur la discipline et le linting
-* La migration nécessite l'ajout d'une couche HTTP
-* Graphe de dépendances partagé (par exemple, le service A hérite des drivers de base de données du service B)
+- Frontières faibles (peuvent être violées)
+- Repose sur la discipline et le linting
+- La migration nécessite l'ajout d'une couche HTTP
+- Graphe de dépendances partagé (par exemple, le service A hérite des drivers de base de données du service B)
 
 **Quand l'utiliser :** Petite équipe (2-5 dev), critique en performance, forte discipline.
 
@@ -117,16 +117,16 @@ Avant de présenter le pattern recommandé, comparons les approches architectura
 **Structure :** Dépôts séparés, déploiements séparés, communication uniquement par réseau.
 
 **Avantages :**
-* Isolation la plus forte
-* Déploiement et mise à l'échelle indépendants
-* Liberté technologique
-* Autonomie des équipes
+- Isolation la plus forte
+- Déploiement et mise à l'échelle indépendants
+- Liberté technologique
+- Autonomie des équipes
 
 **Inconvénients :**
-* Complexité opérationnelle la plus élevée
-* Défis des systèmes distribués dès le premier jour
-* Surcharge de développement (doit exécuter plusieurs services)
-* Difficulté de débogage (traçage distribué requis)
+- Complexité opérationnelle la plus élevée
+- Défis des systèmes distribués dès le premier jour
+- Surcharge de développement (doit exécuter plusieurs services)
+- Difficulté de débogage (traçage distribué requis)
 
 **Quand l'utiliser :** Besoins de mise à l'échelle connus, grande équipe (30+ dev), exigences polyglot.
 
@@ -135,17 +135,17 @@ Avant de présenter le pattern recommandé, comparons les approches architectura
 **Structure :** Plusieurs modules Go coordonnés par `go.work`, modules `bridge` pour les appels in-process.
 
 **Avantages :**
-* Frontières fortes (imposées par le compilateur)
-* Performance excellente (in-process via bridges)
-* Migration facile (échange d'adaptateurs)
-* Commodité monorepo fournie par [go.work](https://go.dev/doc/tutorial/workspaces)
-* Versionnage indépendant des modules
-* Jointures explicites et visibles
+- Frontières fortes (imposées par le compilateur)
+- Performance excellente (in-process via bridges)
+- Migration facile (échange d'adaptateurs)
+- Commodité monorepo fournie par [go.work](https://go.dev/doc/tutorial/workspaces)
+- Versionnage indépendant des modules
+- Jointures explicites et visibles
 
 **Inconvénients :**
-* Complexité de configuration moyenne (plusieurs fichiers `go.mod`)
-* Nécessite la compréhension du pattern bridge
-* Plus de modules à coordonner
+- Complexité de configuration moyenne (plusieurs fichiers `go.mod`)
+- Nécessite la compréhension du pattern bridge
+- Plus de modules à coordonner
 
 **Quand l'utiliser :** Équipe moyenne (5-20 dev), frontières claires, distribution future probable.
 
@@ -158,33 +158,33 @@ Avant de présenter le pattern recommandé, comparons les approches architectura
 **1. Go Workspaces pour la Coordination des Modules**
 
 Utiliser `go.work` pour coordonner plusieurs modules Go indépendants dans un seul dépôt :
-* Chaque service est son propre module avec son propre `go.mod`
-* Le workspace rend le développement cross-module transparent
-* Le compilateur impose les frontières des modules
+- Chaque service est son propre module avec son propre `go.mod`
+- Le workspace rend le développement cross-module transparent
+- Le compilateur impose les frontières des modules
 
 **2. Modules Bridge pour des Frontières Explicites**
 
 Les services communiquent via des modules bridge publics :
-* Le bridge définit l'API du service avec des interfaces Go
-* Le bridge fournit des implémentations client et serveur in-process
-* Les services peuvent uniquement importer le bridge, pas les internals des autres services
-* **Le compilateur empêche les violations de frontières**
+- Le bridge définit l'API du service avec des interfaces Go
+- Le bridge fournit des implémentations client et serveur in-process
+- Les services peuvent uniquement importer le bridge, pas les internals des autres services
+- **Le compilateur empêche les violations de frontières**
 
 **3. Transport Réseau Optionnel**
 
 Les protocoles réseau comme HTTP/Connect/gRPC sont optionnels :
-* Utiliser les bridges in-process pendant le développement
-* Ajouter le transport réseau lorsque la distribution est nécessaire
-* **Échanger les adaptateurs via injection de dépendances**
-* Le même code de service fonctionne avec les deux transports
+- Utiliser les bridges in-process pendant le développement
+- Ajouter le transport réseau lorsque la distribution est nécessaire
+- **Échanger les adaptateurs via injection de dépendances**
+- Le même code de service fonctionne avec les deux transports
 
 **4. Architecture Hexagonale au Sein des Services**
 
 Chaque service utilise une architecture propre en interne :
-* Couche domaine pour la logique métier pure
-* Couche application avec les cas d'usage et les ports
-* Couche adaptateurs comme HTTP, base de données, clients de service
-* Couche infrastructure pour le câblage et la configuration
+- Couche domaine pour la logique métier pure
+- Couche application avec les cas d'usage et les ports
+- Couche adaptateurs comme HTTP, base de données, clients de service
+- Couche infrastructure pour le câblage et la configuration
 
 ### Diagramme d'Architecture de Haut Niveau
 
@@ -485,29 +485,29 @@ service-manager/
 **1. Pourquoi Plusieurs Modules Go ?**
 
 Chaque service est un module Go indépendant parce que :
-* ✓ **Le compilateur impose les frontières** - Le Service A ne peut physiquement pas importer le package `internal/` du Service B
-* ✓ **Graphes de dépendances indépendants** - `authsvc` n'hérite pas du driver PostgreSQL de `authorsvc`
-* ✓ **Versionnage indépendant** - Les services peuvent évoluer à des rythmes différents
-* ✓ **Propriété claire** - Chaque module a son propre `go.mod` montrant les dépendances
-* ✓ **Extraction future** - Déjà un module séparé, facile à déplacer vers un dépôt séparé
+- **Le compilateur impose les frontières** - Le Service A ne peut physiquement pas importer le package `internal/` du Service B
+- **Graphes de dépendances indépendants** - `authsvc` n'hérite pas du driver PostgreSQL de `authorsvc`
+- **Versionnage indépendant** - Les services peuvent évoluer à des rythmes différents
+- **Propriété claire** - Chaque module a son propre `go.mod` montrant les dépendances
+- **Extraction future** - Déjà un module séparé, facile à déplacer vers un dépôt séparé
 
 **2. Pourquoi les Modules Bridge ?**
 
 Les modules bridge fournissent des frontières de service explicites :
-* ✓ **Définition d'API publique** - Contrat clair dans les interfaces Go
-* ✓ **Performance in-process** - Appels de fonctions directs, zéro surcharge réseau
-* ✓ **Jointure explicite** - Frontière visible entre les services
-* ✓ **Application par le compilateur** - Peut uniquement importer le bridge, pas les internals du service
-* ✓ **Évolutivité contrôlée** - Changements d'API versionnés et documentés
+- **Définition d'API publique** - Contrat clair dans les interfaces Go
+- **Performance in-process** - Appels de fonctions directs, zéro surcharge réseau
+- **Jointure explicite** - Frontière visible entre les services
+- **Application par le compilateur** - Peut uniquement importer le bridge, pas les internals du service
+- **Évolutivité contrôlée** - Changements d'API versionnés et documentés
 
 **3. Pourquoi l'Architecture Hexagonale ?**
 
 La clean architecture au sein des services permet :
-* ✓ **Tests du domaine** - Logique métier sans infrastructure
-* ✓ **Adaptateurs échangeables** - Échanger PostgreSQL pour MongoDB sans toucher le domaine
-* ✓ **Ports définis par l'application** - Le domaine définit ce dont il a besoin
-* ✓ **Indépendance des frameworks** - Peut échanger HTTP pour gRPC
-* ✓ **Maintien à long terme** - Les règles métier sont isolées des détails techniques
+- **Tests du domaine** - Logique métier sans infrastructure
+- **Adaptateurs échangeables** - Échanger PostgreSQL pour MongoDB sans toucher le domaine
+- **Ports définis par l'application** - Le domaine définit ce dont il a besoin
+- **Indépendance des frameworks** - Peut échanger HTTP pour gRPC
+- **Maintien à long terme** - Les règles métier sont isolées des détails techniques
 
 ## Module Bridge : Le Cœur du Pattern
 
@@ -1396,15 +1396,15 @@ Le pattern bridge fonctionne avec ou sans protobuf. Protobuf est uniquement néc
 ### Quand Utiliser Protobuf
 
 **Utiliser protobuf lorsque :**
-* Les services communiqueront par réseau
-* Vous avez besoin de garanties de compatibilité ascendante
-* Vous voulez la génération de code pour plusieurs langages
-* Vous avez besoin d'évolution de schéma avec détection de changements cassants
+- Les services communiqueront par réseau
+- Vous avez besoin de garanties de compatibilité ascendante
+- Vous voulez la génération de code pour plusieurs langages
+- Vous avez besoin d'évolution de schéma avec détection de changements cassants
 
 **Sauter protobuf lorsque :**
-* Les services s'exécutent toujours dans le même processus
-* Vous voulez des interfaces Go plus simples (utiliser les DTOs bridge)
-* Prototypage ou développement précoce
+- Les services s'exécutent toujours dans le même processus
+- Vous voulez des interfaces Go plus simples (utiliser les DTOs bridge)
+- Prototypage ou développement précoce
 
 ### Approche Hybride : DTOs Bridge Maintenant, Protobuf Plus Tard
 
@@ -1571,13 +1571,13 @@ func main() {
 
 **Ce qui Reste Identique :**
 
-✓ Code de la couche application (commandes, queries, domaine)
-✓ Définition de l'interface port (`ports.AuthorClient`)
-✓ Logique métier et tests
-✓ Modèles du domaine
-✓ Consommateurs de l'interface port
+- Code de la couche application (commandes, queries, domaine)
+- Définition de l'interface port (`ports.AuthorClient`)
+- Logique métier et tests
+- Modèles du domaine
+- Consommateurs de l'interface port
 
-**Chemin de Migration :**
+**Étapes de Migration :**
 
 ```
 Étape 1 : Commencer avec In-Process
@@ -1630,18 +1630,18 @@ author_service_url: "https://author-service.internal:8080"
 **Quand Utiliser Chacun :**
 
 **In-Process (via Bridge) :**
-- ✓ Développement local
-- ✓ Tests d'intégration
-- ✓ Services qui déploient toujours ensemble
-- ✓ Chemins critiques en performance
-- ✓ Prototypage précoce
+- Développement local
+- Tests d'intégration
+- Services qui déploient toujours ensemble
+- Chemins critiques en performance
+- Prototypage précoce
 
 **Réseau (via Connect) :**
-- ✓ Production avec mise à l'échelle indépendante
-- ✓ Services appartenant à différentes équipes
-- ✓ Calendriers de déploiement différents
-- ✓ Distribution géographique
-- ✓ Consommateurs polyglots (autres langages)
+- Production avec mise à l'échelle indépendante
+- Services appartenant à différentes équipes
+- Calendriers de déploiement différents
+- Distribution géographique
+- Consommateurs polyglots (autres langages)
 
 ### Workflow Protobuf Complet
 
@@ -1900,10 +1900,10 @@ func TestUser_ChangePassword(t *testing.T) {
 ```
 
 **Caractéristiques :**
-* ✓ Très rapides (<1ms par test)
-* ✓ Pas de dépendances externes
-* ✓ Pas de mocks nécessaires
-* ✓ Couverture élevée sur les règles métier
+- Très rapides (<1ms par test)
+- Pas de dépendances externes
+- Pas de mocks nécessaires
+- Couverture élevée sur les règles métier
 
 ### 2. Tests de Cas d'Usage (Couche Application)
 
@@ -1938,10 +1938,10 @@ func TestLoginCommand_Execute(t *testing.T) {
 ```
 
 **Caractéristiques :**
-* ✓ Rapides (1-10ms par test)
-* ✓ Testent la logique d'orchestration
-* ✓ Mocks uniquement pour les ports (dépendances externes)
-* ✓ Vérifient les appels corrects au domaine et aux ports
+- Rapides (1-10ms par test)
+- Testent la logique d'orchestration
+- Mocks uniquement pour les ports (dépendances externes)
+- Vérifient les appels corrects au domaine et aux ports
 
 ### 3. Tests d'Intégration (Adaptateurs)
 
@@ -1970,10 +1970,10 @@ func TestUserRepository_Save(t *testing.T) {
 ```
 
 **Caractéristiques :**
-* ✓ Utilisent de vraies dépendances (base de données, HTTP)
-* ✓ Souvent utilisent testcontainers
-* ✓ Plus lents (100ms-1s par test)
-* ✓ Vérifient que les adaptateurs implémentent correctement les ports
+- Utilisent de vraies dépendances (base de données, HTTP)
+- Souvent utilisent testcontainers
+- Plus lents (100ms-1s par test)
+- Vérifient que les adaptateurs implémentent correctement les ports
 
 ### 4. Tests d'Intégration de Services (Bridge In-Process)
 
@@ -2005,10 +2005,10 @@ func TestLogin_WithAuthorService(t *testing.T) {
 ```
 
 **Caractéristiques :**
-* ✓ Teste plusieurs services ensemble
-* ✓ Utilise le bridge in-process (rapide)
-* ✓ BDs réelles mais transport in-process
-* ✓ Valide la communication inter-services
+- Teste plusieurs services ensemble
+- Utilise le bridge in-process (rapide)
+- BDs réelles mais transport in-process
+- Valide la communication inter-services
 
 ### 5. Tests E2E (Transport Réseau Optionnel)
 
@@ -2039,10 +2039,10 @@ func TestE2E_Login(t *testing.T) {
 ```
 
 **Caractéristiques :**
-* ✓ Teste le transport réseau complet
-* ✓ Le plus lent (1-5s par test)
-* ✓ Valide la sérialisation, middleware, gestion d'erreurs HTTP
-* ✓ Utiliser avec parcimonie (smoke tests)
+- Teste le transport réseau complet
+- Le plus lent (1-5s par test)
+- Valide la sérialisation, middleware, gestion d'erreurs HTTP
+- Utiliser avec parcimonie (smoke tests)
 
 ### Stratégie de Tests
 
@@ -2058,10 +2058,10 @@ Unit (Domain)  ← Le plus de tests, vérifient les règles métier
 ```
 
 **Recommandations :**
-* 70% tests unitaires (domaine)
-* 20% tests de cas d'usage (application)
-* 8% tests d'intégration (adaptateurs)
-* 2% tests E2E (smoke tests)
+- 70% tests unitaires (domaine)
+- 20% tests de cas d'usage (application)
+- 8% tests d'intégration (adaptateurs)
+- 2% tests E2E (smoke tests)
 
 ## Application des Frontières Architecturales
 
@@ -2803,16 +2803,16 @@ func GetInternalState(service interface{}) map[string]interface{} {
 ### Quand Utiliser ce Pattern
 
 **Bon Choix Pour :**
-* Équipes de taille moyenne (5-20 développeurs)
-* Systèmes où la distribution future est probable mais pas immédiate
-* Projets valorisant les frontières fortes sans complexité opérationnelle
-* Organisations consolidant des microservices prématurés
+- Équipes de taille moyenne (5-20 développeurs)
+- Systèmes où la distribution future est probable mais pas immédiate
+- Projets valorisant les frontières fortes sans complexité opérationnelle
+- Organisations consolidant des microservices prématurés
 
 **Mauvais Choix Pour :**
-* Projets solo ou très petites équipes (utiliser module unique)
-* MVP où le domaine n'est pas clair
-* Équipes déjà à l'aise avec une infrastructure de microservices
-* Systèmes nécessitant une distribution immédiate
+- Projets solo ou très petites équipes (utiliser module unique)
+- MVP où le domaine n'est pas clair
+- Équipes déjà à l'aise avec une infrastructure de microservices
+- Systèmes nécessitant une distribution immédiate
 
 ### Prochaines Étapes
 
@@ -2846,27 +2846,27 @@ func GetInternalState(service interface{}) map[string]interface{} {
 ## Références et lectures complémentaires
 
 ### Go Workspaces
-* [Go Workspace Tutorial](https://go.dev/doc/tutorial/workspaces)
-* [Go Modules Reference](https://go.dev/ref/mod)
+- [Go Workspace Tutorial](https://go.dev/doc/tutorial/workspaces)
+- [Go Modules Reference](https://go.dev/ref/mod)
 
 ### Domain-Driven Design
-* *Domain-Driven Design* par Eric Evans
-* *Implementing Domain-Driven Design* de Vaughn Vernon
+- *Domain-Driven Design* par Eric Evans
+- *Implementing Domain-Driven Design* de Vaughn Vernon
 
 ### Hexagonal Architecture
-* [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) par Alistair Cockburn
-* *Clean Architecture* de Robert C. Martin
+- [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) par Alistair Cockburn
+- *Clean Architecture* de Robert C. Martin
 
 ### Protocol Buffers & Connect
-* [Protocol Buffers Documentation](https://protobuf.dev/)
-* [Connect RPC](https://connectrpc.com/)
-* [Buf](https://buf.build/)
+- [Protocol Buffers Documentation](https://protobuf.dev/)
+- [Connect RPC](https://connectrpc.com/)
+- [Buf](https://buf.build/)
 
 ### Tests
-* *Growing Object-Oriented Software, Guided by Tests* by Steve Freeman & Nat Pryce
-* [Testing in Go](https://go.dev/doc/tutorial/add-a-test)
+- *Growing Object-Oriented Software, Guided by Tests* by Steve Freeman & Nat Pryce
+- [Testing in Go](https://go.dev/doc/tutorial/add-a-test)
 
 ### Outils
-* [arch-go](https://github.com/arch-go/arch-go) - Tests d'architecture pour Go
-* [go-cleanarch](https://github.com/roblaszczak/go-cleanarch) - Validation de dépendances de couches
-* [godepgraph](https://github.com/kisielk/godepgraph) - Visualisation de graphes de dépendances
+- [arch-go](https://github.com/arch-go/arch-go) - Tests d'architecture pour Go
+- [go-cleanarch](https://github.com/roblaszczak/go-cleanarch) - Validation de dépendances de couches
+- [godepgraph](https://github.com/kisielk/godepgraph) - Visualisation de graphes de dépendances

@@ -10,19 +10,19 @@ The choice between monoliths and microservices is well-documented: monoliths can
 
 ### What This Pattern Provides
 
-* **Strong architectural boundaries** enforced by the Go compiler
-* **In-process performance** during development and when services are co-located
-* **Flexible distribution** when services need independent scaling
-* **Clear migration path** from monolith to distributed without rewriting
-* **DDD and hexagonal architecture** for maintainable domain logic
-* **Optional protobuf contracts** for when you need network protocols
+- **Strong architectural boundaries** enforced by the Go compiler
+- **In-process performance** during development and when services are co-located
+- **Flexible distribution** when services need independent scaling
+- **Clear migration path** from monolith to distributed without rewriting
+- **DDD and hexagonal architecture** for maintainable domain logic
+- **Optional protobuf contracts** for when you need network protocols
 
 ### Who This Is For
 
-* Teams building new systems where future distribution is possible but not immediate
-* Organizations consolidating microservices that should have been a monolith
-* Projects migrating from tightly-coupled monoliths toward better boundaries
-* Developers evaluating architectural approaches for medium-to-large Go systems (5-20 developers)
+- Teams building new systems where future distribution is possible but not immediate
+- Organizations consolidating microservices that should have been a monolith
+- Projects migrating from tightly-coupled monoliths toward better boundaries
+- Developers evaluating architectural approaches for medium-to-large Go systems (5-20 developers)
 
 This is not the only valid approach. We'll compare it with alternatives and discuss when this pattern fits and when it doesn't.
 
@@ -33,34 +33,34 @@ This is not the only valid approach. We'll compare it with alternatives and disc
 **1. Boundary Erosion in Traditional Monoliths**
 
 Classic Go monoliths rely on convention to maintain boundaries:
-* `internal/` packages provide some protection but nothing prevents `serviceA` from importing `serviceB/internal` with relative imports
-* Architectural violations happen gradually and silently
-* Refactoring becomes increasingly difficult
+- `internal/` packages provide some protection but nothing prevents `serviceA` from importing `serviceB/internal` with relative imports
+- Architectural violations happen gradually and silently
+- Refactoring becomes increasingly difficult
 
 **2. Premature Distribution Complexity**
 
 Microservices-first approaches impose costs before they're justified:
-* Operational overhead (Kubernetes, service mesh, monitoring)
-* Network reliability concerns from day one
-* Distributed transactions and eventual consistency
-* Development environment complexity
+- Operational overhead (Kubernetes, service mesh, monitoring)
+- Network reliability concerns from day one
+- Distributed transactions and eventual consistency
+- Development environment complexity
 
 **3. Difficult Migration Paths**
 
 Existing patterns make evolution painful:
-* Monolith -> Microservices: Requires complete rewrites of communication layers
-* Microservices -> Monolith: Loses service boundaries when consolidating
-* Either direction: High risk, long timelines, business disruption
+- Monolith -> Microservices: Requires complete rewrites of communication layers
+- Microservices -> Monolith: Loses service boundaries when consolidating
+- Either direction: High risk, long timelines, business disruption
 
 ### What Success Looks Like
 
 An ideal pattern would provide:
-* ✓ Compiler-enforced service boundaries
-* ✓ In-process performance when appropriate
-* ✓ Network distribution when needed
-* ✓ Incremental migration (no big bang rewrites)
-* ✓ Development simplicity (monorepo experience)
-* ✓ Production flexibility (deploy together or separately)
+- Compiler-enforced service boundaries
+- In-process performance when appropriate
+- Network distribution when needed
+- Incremental migration (no big bang rewrites)
+- Development simplicity (monorepo experience)
+- Production flexibility (deploy together or separately)
 
 ## Alternative Approaches
 
@@ -81,16 +81,16 @@ Before presenting the recommended pattern, let's compare common architectural ap
 **Structure:** Single module, layered architecture (handlers -> services -> repositories).
 
 **Pros:**
-* Simplest setup
-* Fast development
-* Easy transactions
-* Best initial performance
+- Simplest setup
+- Fast development
+- Easy transactions
+- Best initial performance
 
 **Cons:**
-* No boundaries (everything can call everything)
-* Hard to split later
-* Merge conflicts across team
-* Cannot scale services independently
+- No boundaries (everything can call everything)
+- Hard to split later
+- Merge conflicts across team
+- Cannot scale services independently
 
 **When to use:** Solo developer, simple CRUD, MVP, unclear domain.
 
@@ -99,16 +99,16 @@ Before presenting the recommended pattern, let's compare common architectural ap
 **Structure:** One `go.mod`, services use `internal/` packages and public facades.
 
 **Pros:**
-* Simple setup
-* Zero network overhead
-* Shared dependency management
-* Fast iteration
+- Simple setup
+- Zero network overhead
+- Shared dependency management
+- Fast iteration
 
 **Cons:**
-* Weak boundaries (can be violated)
-* Relies on discipline and linting
-* Migration requires adding HTTP layer
-* Shared dependency graph (for example, service A inherits service B's database drivers)
+- Weak boundaries (can be violated)
+- Relies on discipline and linting
+- Migration requires adding HTTP layer
+- Shared dependency graph (for example, service A inherits service B's database drivers)
 
 **When to use:** Small team (2-5 devs), performance critical, strong discipline.
 
@@ -117,16 +117,16 @@ Before presenting the recommended pattern, let's compare common architectural ap
 **Structure:** Separate repos, separate deployments, network-only communication.
 
 **Pros:**
-* Strongest isolation
-* Independent deployment and scaling
-* Technology freedom
-* Team autonomy
+- Strongest isolation
+- Independent deployment and scaling
+- Technology freedom
+- Team autonomy
 
 **Cons:**
-* Highest operational complexity
-* Distributed system challenges from day one
-* Development overhead (must run many services)
-* Debugging difficulty (distributed tracing required)
+- Highest operational complexity
+- Distributed system challenges from day one
+- Development overhead (must run many services)
+- Debugging difficulty (distributed tracing required)
 
 **When to use:** Known scaling needs, large team (30+ devs), polyglot requirements
 
@@ -135,17 +135,17 @@ Before presenting the recommended pattern, let's compare common architectural ap
 **Structure:** Multiple Go modules coordinated by `go.work`, bridge modules for in-process calls
 
 **Pros:**
-* Strong boundaries (compiler-enforced)
-* Excellent performance (in-process via bridges)
-* Easy migration (swap adapters)
-* Monorepo convenience provided by [go.work](https://go.dev/doc/tutorial/workspaces)
-* Independent module versioning
-* Explicit, visible seams
+- Strong boundaries (compiler-enforced)
+- Excellent performance (in-process via bridges)
+- Easy migration (swap adapters)
+- Monorepo convenience provided by [go.work](https://go.dev/doc/tutorial/workspaces)
+- Independent module versioning
+- Explicit, visible seams
 
 **Cons:**
-* Medium setup complexity (multiple `go.mod` files)
-* Requires understanding of bridge pattern
-* More modules to coordinate
+- Medium setup complexity (multiple `go.mod` files)
+- Requires understanding of bridge pattern
+- More modules to coordinate
 
 **When to use:** Medium team (5-20 devs), clear boundaries, likely future distribution.
 
@@ -158,33 +158,33 @@ Before presenting the recommended pattern, let's compare common architectural ap
 **1. Go Workspaces for Module Coordination**
 
 Use `go.work` to coordinate multiple independent Go modules in a single repository:
-* Each service is its own module with its own `go.mod`
-* Workspace makes cross-module development seamless
-* Compiler enforces module boundaries
+- Each service is its own module with its own `go.mod`
+- Workspace makes cross-module development seamless
+- Compiler enforces module boundaries
 
 **2. Bridge Modules for Explicit Boundaries**
 
 Services communicate via public bridge modules:
-* Bridge defines the service API with Go interfaces
-* Bridge provides in-process client and server implementations
-* Services can only import bridge, not other service internals
-* **Compiler prevents boundary violations**
+- Bridge defines the service API with Go interfaces
+- Bridge provides in-process client and server implementations
+- Services can only import bridge, not other service internals
+- **Compiler prevents boundary violations**
 
 **3. Optional Network Transport**
 
 Network protocols like HTTP/Connect/gRPC are opt-in:
-* Use in-process bridges during development
-* Add network transport when distribution is needed
-* **Swap adapters via dependency injection**
-* Same service code works with both transports
+- Use in-process bridges during development
+- Add network transport when distribution is needed
+- **Swap adapters via dependency injection**
+- Same service code works with both transports
 
 **4. Hexagonal Architecture Within Services**
 
 Each service uses clean architecture internally:
-* Domain layer for pure business logic
-* Application layer with use cases and ports
-* Adapters layer like HTTP, database, service clients
-* Infrastructure layer for wiring and config
+- Domain layer for pure business logic
+- Application layer with use cases and ports
+- Adapters layer like HTTP, database, service clients
+- Infrastructure layer for wiring and config
 
 ### High-Level Architecture Diagram
 
@@ -485,38 +485,38 @@ service-manager/
 **1. Why Multiple Go Modules?**
 
 Each service is an independent Go module because:
-* ✓ **Compiler enforces boundaries** - Service A physically cannot import Service B's `internal/` package
-* ✓ **Independent dependency graphs** - `authsvc` doesn't inherit `authorsvc`'s PostgreSQL driver
-* ✓ **Independent versioning** - Services can evolve at different rates
-* ✓ **Clear ownership** - Each module has its own `go.mod` showing dependencies
-* ✓ **Future extraction** - Already a separate module, easy to move to separate repo
+- **Compiler enforces boundaries** - Service A physically cannot import Service B's `internal/` package
+- **Independent dependency graphs** - `authsvc` doesn't inherit `authorsvc`'s PostgreSQL driver
+- **Independent versioning** - Services can evolve at different rates
+- **Clear ownership** - Each module has its own `go.mod` showing dependencies
+- **Future extraction** - Already a separate module, easy to move to separate repo
 
 **2. Why Bridge Modules?**
 
 Bridge modules provide explicit service boundaries:
-* ✓ **Public API definition** - Clear contract in Go interfaces
-* ✓ **In-process performance** - Direct function calls, zero network overhead
-* ✓ **Explicit seam** - Visible boundary between services
-* ✓ **Compiler enforcement** - Can only import bridge, not service internals
-* ✓ **Flexible implementation** - Same interface works for in-process and network
-* ✓ **Testability** - Easy to mock the bridge interface
+- **Public API definition** - Clear contract in Go interfaces
+- **In-process performance** - Direct function calls, zero network overhead
+- **Explicit seam** - Visible boundary between services
+- **Compiler enforcement** - Can only import bridge, not service internals
+- **Flexible implementation** - Same interface works for in-process and network
+- **Testability** - Easy to mock the bridge interface
 
 **3. Why Optional Protobuf?**
 
 Protobuf contracts are generated but not required for in-process communication:
-* Use **Go DTOs in bridges** during development (simple, idiomatic)
-* Add **protobuf** when you need network transport
-* Bridge can use either protobuf types or custom Go types
-* Gradual adoption - start simple, add complexity when needed
+- Use **Go DTOs in bridges** during development (simple, idiomatic)
+- Add **protobuf** when you need network transport
+- Bridge can use either protobuf types or custom Go types
+- Gradual adoption - start simple, add complexity when needed
 
 **4. Why Go Workspaces?**
 
 `go.work` coordinates independent modules:
-* ✓ **Monorepo experience** - Feels like single codebase
-* ✓ **Seamless cross-module development** - No publishing required
-* ✓ **IDE integration** - Jump to definition across modules
-* ✓ **Single test command** - `go test ./...` works across workspace
-* ✓ **Replace directives** - Local overrides for development
+- **Monorepo experience** - Feels like single codebase
+- **Seamless cross-module development** - No publishing required
+- **IDE integration** - Jump to definition across modules
+- **Single test command** - `go test ./...` works across workspace
+- **Replace directives** - Local overrides for development
 
 ## Bridge Module Pattern
 
@@ -1086,9 +1086,9 @@ func main() {
 
 **Bridge modules must remain:**
 
-* **Stateless** - No global variables, no caches, no state
-* **Business-logic free** - No domain rules, no validation beyond DTO structure
-* **DTO + interface only** - Just data contracts and method signatures
+- **Stateless** - No global variables, no caches, no state
+- **Business-logic free** - No domain rules, no validation beyond DTO structure
+- **DTO + interface only** - Just data contracts and method signatures
 
 **Warning Signs You're Creating a Shared Kernel:**
 
@@ -1158,20 +1158,20 @@ type AuthorService interface {
 
 **What Belongs in Bridge Modules:**
 
-* ✓ Interface definitions (service contracts)
-* ✓ DTOs (pure data structures)
-* ✓ Error constants (semantic errors like `ErrNotFound`)
-* ✓ InprocServer (wraps internal application layer)
-* ✓ InprocClient (calls InprocServer)
+- Interface definitions (service contracts)
+- DTOs (pure data structures)
+- Error constants (semantic errors like `ErrNotFound`)
+- InprocServer (wraps internal application layer)
+- InprocClient (calls InprocServer)
 
 **What Does NOT Belong in Bridge Modules:**
 
-* ✗ Business validation rules
-* ✗ Domain calculations or algorithms
-* ✗ Shared utilities across services
-* ✗ Database models or repository logic
-* ✗ HTTP handlers or transport-specific code
-* ✗ Configuration or feature flags
+- Business validation rules
+- Domain calculations or algorithms
+- Shared utilities across services
+- Database models or repository logic
+- HTTP handlers or transport-specific code
+- Configuration or feature flags
 
 By keeping bridge modules pure, you maintain clean service boundaries and avoid the coupling problems that plague shared-kernel architectures.
 
@@ -1208,9 +1208,9 @@ graph TB
 **Purpose:** Represent core business concepts and rules
 
 **Characteristics:**
-* No dependencies on frameworks, databases, or external systems
-* Pure Go code using standard library only
-* Fully testable without any infrastructure
+- No dependencies on frameworks, databases, or external systems
+- Pure Go code using standard library only
+- Fully testable without any infrastructure
 
 **Components:**
 
@@ -1362,10 +1362,10 @@ type Repository interface {
 **Purpose:** Implement business workflows that coordinate domain objects
 
 **Characteristics:**
-* Depends on domain layer
-* Defines ports (interfaces) for external dependencies
-* No knowledge of HTTP, databases, or specific frameworks
-* Transaction boundaries
+- Depends on domain layer
+- Defines ports (interfaces) for external dependencies
+- No knowledge of HTTP, databases, or specific frameworks
+- Transaction boundaries
 
 **Components:**
 
@@ -1525,12 +1525,12 @@ var (
 **Purpose:** Implement ports and handle external communication
 
 **Inbound Adapters** (primary/driving):
-* Deliver requests to the application
-* Examples: HTTP handlers, Connect handlers, CLI commands
+- Deliver requests to the application
+- Examples: HTTP handlers, Connect handlers, CLI commands
 
 **Outbound Adapters** (secondary/driven):
-* Application calls external systems
-* Examples: Database repositories, service clients, cache, events
+- Application calls external systems
+- Examples: Database repositories, service clients, cache, events
 
 **Example Inbound Adapter (HTTP):**
 
@@ -1698,10 +1698,10 @@ main.go (composition root)
 
 **Rule:** Dependencies point inward. Inner layers don't know about outer layers.
 
-* Domain has zero external dependencies
-* Application depends on Domain + Ports (interfaces)
-* Adapters depend on Application ports + external libraries
-* Infrastructure knows about everything (wiring)
+- Domain has zero external dependencies
+- Application depends on Domain + Ports (interfaces)
+- Adapters depend on Application ports + external libraries
+- Infrastructure knows about everything (wiring)
 
 ## Protobuf Contracts
 
@@ -1710,15 +1710,15 @@ Protobuf contracts are **optional** in this architecture. Use them when you need
 ### When to Use Protobuf
 
 **Use protobuf when:**
-* Services will communicate over the network
-* You need backward compatibility guarantees
-* You want code generation for multiple languages
-* You need schema evolution with breaking change detection
+- Services will communicate over the network
+- You need backward compatibility guarantees
+- You want code generation for multiple languages
+- You need schema evolution with breaking change detection
 
 **Skip protobuf when:**
-* Services always run in the same process
-* You want simpler Go interfaces (use bridge DTOs)
-* Prototyping or early development
+- Services always run in the same process
+- You want simpler Go interfaces (use bridge DTOs)
+- Prototyping or early development
 
 ### Hybrid Approach: Bridge DTOs Now, Protobuf Later
 
@@ -1843,7 +1843,8 @@ func main() {
 
     if cfg.UseInProcessBridge {
         // ===== OPTION 1: In-Process =====
-        // Get shared InprocServer from authorsvc
+        // Get the AuthorService InprocServer from authorsvc
+        // (In practice, this is a singleton shared across services in same process)
         authorServer := getAuthorServiceInprocServer()
 
         // Wrap in bridge client
@@ -1885,11 +1886,11 @@ func main() {
 
 **What Stays the Same:**
 
-✓ Application layer code (commands, queries, domain)
-✓ Port interface definition (`ports.AuthorClient`)
-✓ Business logic and tests
-✓ Domain models
-✓ Port interface consumers
+- Application layer code (commands, queries, domain)
+- Port interface definition (`ports.AuthorClient`)
+- Business logic and tests
+- Domain models
+- Port interface consumers
 
 **Migration Path:**
 
@@ -1944,18 +1945,18 @@ author_service_url: "https://author-service.internal:8080"
 **When to Use Each:**
 
 **In-Process (via Bridge):**
-- ✓ Local development
-- ✓ Integration tests
-- ✓ Services that always deploy together
-- ✓ Performance-critical paths
-- ✓ Early prototyping
+- Local development
+- Integration tests
+- Services that always deploy together
+- Performance-critical paths
+- Early prototyping
 
 **Network (via Connect):**
-- ✓ Need independent scaling
-- ✓ Services owned by different teams
-- ✓ Different deployment schedules
-- ✓ Geographic distribution
-- ✓ Polyglot consumers (other languages)
+- Need independent scaling
+- Services owned by different teams
+- Different deployment schedules
+- Geographic distribution
+- Polyglot consumers (other languages)
 
 ### Complete Protobuf Workflow
 
@@ -2373,10 +2374,10 @@ func TestUser_ChangePassword(t *testing.T) {
 ```
 
 **Characteristics:**
-* ✓ Very fast (<1ms per test)
-* ✓ No external dependencies
-* ✓ No mocks needed
-* ✓ High coverage on business rules
+- Very fast (<1ms per test)
+- No external dependencies
+- No mocks needed
+- High coverage on business rules
 
 ### 2. Use Case Tests (Application Layer)
 
@@ -2414,10 +2415,10 @@ func TestLoginCommand_Execute(t *testing.T) {
 ```
 
 **Characteristics:**
-* ✓ Fast (~1-10ms per test)
-* ✓ Tests use case logic
-* ✓ Mocked external dependencies
-* ✓ Tests error handling and edge cases
+- Fast (~1-10ms per test)
+- Tests use case logic
+- Mocked external dependencies
+- Tests error handling and edge cases
 
 ### 3. Integration Tests (Adapters)
 
@@ -2449,10 +2450,10 @@ func TestUserRepository_Save(t *testing.T) {
 ```
 
 **Characteristics:**
-* ✓ Medium speed (~10-100ms per test)
-* ✓ Real database/cache/external systems
-* ✓ Tests adapter implementation
-* ✓ Can use test containers
+- Medium speed (~10-100ms per test)
+- Real database/cache/external systems
+- Tests adapter implementation
+- Can use test containers
 
 ### 4. Contract Tests (Bridge/Service Boundaries)
 
@@ -2480,9 +2481,9 @@ func TestAuthorBridge_InProcess(t *testing.T) {
 ```
 
 **Characteristics:**
-* ✓ Tests service boundaries
-* ✓ Tests both in-process and network transports
-* ✓ Validates error handling across services
+- Tests service boundaries
+- Tests both in-process and network transports
+- Validates error handling across services
 
 ### 5. End-to-End Tests
 
@@ -2510,9 +2511,9 @@ func TestUserRegistrationFlow(t *testing.T) {
 ```
 
 **Characteristics:**
-* ✓ Tests complete flows
-* ✓ All services running
-* ✓ Real interactions
+- Tests complete flows
+- All services running
+- Real interactions
 
 ### Running Tests
 
@@ -2605,27 +2606,27 @@ Architecture tests validate that code structure matches intended design. These t
 A comprehensive validation tool that checks:
 
 **Service Isolation:**
-* ✓ Services don't import other service `internal/` packages
-* ✓ Services only communicate via bridge modules or network
-* ✓ No cross-service imports except through public contracts
+- Services don't import other service `internal/` packages
+- Services only communicate via bridge modules or network
+- No cross-service imports except through public contracts
 
 **Layer Purity:**
-* ✓ Domain layer has zero infrastructure dependencies
-* ✓ Domain doesn't import `database/sql`, `net/http`, or framework packages
-* ✓ Application layer doesn't import adapters
-* ✓ Adapters implement application ports (dependency inversion)
+- Domain layer has zero infrastructure dependencies
+- Domain doesn't import `database/sql`, `net/http`, or framework packages
+- Application layer doesn't import adapters
+- Adapters implement application ports (dependency inversion)
 
 **Module Dependencies:**
-* ✓ Bridge modules have no dependencies (pure interfaces)
-* ✓ Services depend only on: bridges, contracts, and standard libraries
-* ✓ No circular dependencies between modules (at go.mod level - compiler already prevents package-level cycles)
-* ✓ Dependency graph flows in correct direction
+- Bridge modules have no dependencies (pure interfaces)
+- Services depend only on: bridges, contracts, and standard libraries
+- No circular dependencies between modules (at go.mod level - compiler already prevents package-level cycles)
+- Dependency graph flows in correct direction
 
 **Import Graph Validation:**
-* ✓ Validate module dependency graph
-* ✓ Detect transitive dependency violations
-* ✓ Ensure clean dependency tree
-* ✓ Use companion visualization tools (see below)
+- Validate module dependency graph
+- Detect transitive dependency violations
+- Ensure clean dependency tree
+- Use companion visualization tools (see below)
 
 **Complete Implementation:**
 
@@ -3088,7 +3089,7 @@ func checkLayerDependencies() error {
 go run ./tools/arch-test
 
 # In CI (fails build on violations)
-* name: Validate Architecture
+- name: Validate Architecture
   run: go run ./tools/arch-test
 
 # Via mise
@@ -3098,14 +3099,14 @@ mise run arch:check
 #### 2. Third-Party Tools
 
 **Architecture Testing:**
-* [arch-go](https://github.com/fdaines/arch-go): Comprehensive architecture testing
-* [go-cleanarch](https://github.com/roblaszczak/go-cleanarch): Layer dependency validation
+- [arch-go](https://github.com/fdaines/arch-go): Comprehensive architecture testing
+- [go-cleanarch](https://github.com/roblaszczak/go-cleanarch): Layer dependency validation
 
 **Dependency Visualization:**
 
 Use these companion tools to visualize and analyze your dependency graph:
 
-* **[godepgraph](https://github.com/kisielk/godepgraph)** (Recommended)
+- **[godepgraph](https://github.com/kisielk/godepgraph)** (Recommended)
   - Generates dependency graphs in Graphviz DOT format
   - Color-codes different package types
   - Simple, focused tool for package-level dependencies
@@ -3121,7 +3122,7 @@ Use these companion tools to visualize and analyze your dependency graph:
   godepgraph -s -o github.com/yourorg/yourproject/services/authsvc | dot -Tpng -o authsvc-deps.png
   ```
 
-* **[goda](https://github.com/loov/goda)** (Advanced)
+- **[goda](https://github.com/loov/goda)** (Advanced)
   - Comprehensive dependency analysis toolkit
   - Multiple visualization commands (graph, tree, list)
   - Supports filtering and clustering
@@ -3141,7 +3142,7 @@ Use these companion tools to visualize and analyze your dependency graph:
   goda graph "reach(./services/authsvc/...)" | dot -Tpng -o authsvc-reach.png
   ```
 
-* **[graphdot](https://github.com/ewohltman/graphdot)** (Module-level)
+- **[graphdot](https://github.com/ewohltman/graphdot)** (Module-level)
   - Visualizes Go module dependencies (go.mod level)
   - Good for understanding module-level architecture
   - Run in project root to generate DOT output
@@ -3164,10 +3165,10 @@ Use these companion tools to visualize and analyze your dependency graph:
 #### Integration with CI
 
 Architecture tests should be:
-* ✓ **Required** - Block merge if tests fail
-* ✓ **Fast** - Run on every PR (~5-10 seconds)
-* ✓ **Clear** - Provide actionable error messages
-* ✓ **Comprehensive** - Cover all architectural rules
+- **Required** - Block merge if tests fail
+- **Fast** - Run on every PR (~5-10 seconds)
+- **Clear** - Provide actionable error messages
+- **Comprehensive** - Cover all architectural rules
 
 Example CI failure message:
 ```
@@ -3213,14 +3214,14 @@ func checkDomainCoverage() error {
 
 #### References
 
-* [go-cleanarch](https://github.com/bxcodec/go-clean-arch) - Clean Architecture reference implementation in Go
-* [arch-go](https://github.com/fdaines/arch-go) - Architecture testing tool
-* [golang-standards/project-layout](https://github.com/golang-standards/project-layout) - Standard Go project layout
+- [go-cleanarch](https://github.com/bxcodec/go-clean-arch) - Clean Architecture reference implementation in Go
+- [arch-go](https://github.com/fdaines/arch-go) - Architecture testing tool
+- [golang-standards/project-layout](https://github.com/golang-standards/project-layout) - Standard Go project layout
 
 **Note:** While go-cleanarch provides excellent examples of clean architecture in Go, our pattern adds:
-* Go workspaces for true module isolation
-* Bridge modules for explicit service boundaries
-* Support for both in-process and network communication
+- Go workspaces for true module isolation
+- Bridge modules for explicit service boundaries
+- Support for both in-process and network communication
 
 ### Observability
 
@@ -3256,9 +3257,9 @@ defer span.End()
 ### Deployment
 
 **Development:**
-* All services run on localhost (in-process bridges)
-* Single `mise run dev` command
-* Hot reload via [air](https://github.com/air-verse/air).
+- All services run on localhost (in-process bridges)
+- Single `mise run dev` command
+- Hot reload via [air](https://github.com/air-verse/air).
 
 **Production Options:**
 
@@ -3280,27 +3281,27 @@ go build -o bin/authorsvc ./services/authorsvc/cmd/authorsvc
 
 **Option 3: Hybrid (mix of co-located and distributed)**
 
-* Co-locate non-critical services
-* Distribute performance-critical services
+- Co-locate non-critical services
+- Distribute performance-critical services
 
 ## Decision Criteria
 
 ### Use This Pattern When:
 
-✓ **Medium team size (5-20 developers)**
-✓ **Clear service boundaries exist**
-✓ **Future distribution is likely (but not immediate)**
-✓ **Moderate-to-high domain complexity**
-✓ **Localhost development is acceptable**
-✓ **Want strong boundaries without operational complexity**
+- **Medium team size (5-20 developers)**
+- **Clear service boundaries exist**
+- **Future distribution is likely (but not immediate)**
+- **Moderate-to-high domain complexity**
+- **Localhost development is acceptable**
+- **Want strong boundaries without operational complexity**
 
 ### Don't Use This Pattern When:
 
-✗ **Solo developer or simple CRUD** -> Use traditional monolith
-✗ **Services need independent scaling NOW** -> Use microservices
-✗ **Services need different languages/runtimes** -> Use polyglot microservices
-✗ **Hard real-time or zero-allocation hot paths** -> additional abstraction layers may be undesirable
-✗ **Strong compliance isolation required** -> Need physical separation
+- **Solo developer or simple CRUD** -> Use traditional monolith
+- **Services need independent scaling NOW** -> Use microservices
+- **Services need different languages/runtimes** -> Use polyglot microservices
+- **Hard real-time or zero-allocation hot paths** -> additional abstraction layers may be undesirable
+- **Strong compliance isolation required** -> Need physical separation
 
 ### Comparison with Alternatives
 
@@ -3637,10 +3638,10 @@ func GetInternalState(service interface{}) map[string]interface{} {
 
 ### When This Pattern Shines
 
-* **Growing SaaS products** - Start simple, scale when needed
-* **Internal platforms** - Multiple services, shared infrastructure
-* **Migration from monoliths** - Incremental extraction with safety
-* **Microservices consolidation** - Reduce complexity while keeping boundaries
+- **Growing SaaS products** - Start simple, scale when needed
+- **Internal platforms** - Multiple services, shared infrastructure
+- **Migration from monoliths** - Incremental extraction with safety
+- **Microservices consolidation** - Reduce complexity while keeping boundaries
 
 ### Evolution Path
 
@@ -3665,37 +3666,37 @@ Distributed Microservices
 ### Final Recommendation
 
 If you're building a Go system with:
-* 5-20 developers
-* Clear service boundaries
-* Likely (but not immediate) need for distribution
-* Want strong architectural discipline
+- 5-20 developers
+- Clear service boundaries
+- Likely (but not immediate) need for distribution
+- Want strong architectural discipline
 
 **This pattern provides the best balance of simplicity, safety, and flexibility.**
 
 ## References and Further Reading
 
 ### Go Workspaces
-* [Go Workspace Tutorial](https://go.dev/doc/tutorial/workspaces)
-* [Go Modules Reference](https://go.dev/ref/mod)
+- [Go Workspace Tutorial](https://go.dev/doc/tutorial/workspaces)
+- [Go Modules Reference](https://go.dev/ref/mod)
 
 ### Domain-Driven Design
-* *Domain-Driven Design* by Eric Evans
-* *Implementing Domain-Driven Design* by Vaughn Vernon
+- *Domain-Driven Design* by Eric Evans
+- *Implementing Domain-Driven Design* by Vaughn Vernon
 
 ### Hexagonal Architecture
-* [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) by Alistair Cockburn
-* *Clean Architecture* by Robert C. Martin
+- [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) by Alistair Cockburn
+- *Clean Architecture* by Robert C. Martin
 
 ### Protocol Buffers & Connect
-* [Protocol Buffers Documentation](https://protobuf.dev/)
-* [Connect RPC](https://connectrpc.com/)
-* [Buf](https://buf.build/)
+- [Protocol Buffers Documentation](https://protobuf.dev/)
+- [Connect RPC](https://connectrpc.com/)
+- [Buf](https://buf.build/)
 
 ### Testing
-* *Growing Object-Oriented Software, Guided by Tests* by Steve Freeman & Nat Pryce
-* [Testing in Go](https://go.dev/doc/tutorial/add-a-test)
+- *Growing Object-Oriented Software, Guided by Tests* by Steve Freeman & Nat Pryce
+- [Testing in Go](https://go.dev/doc/tutorial/add-a-test)
 
 ### Tools
-* [arch-go](https://github.com/arch-go/arch-go): Architectural testing for Go
-* [go-cleanarch](https://github.com/roblaszczak/go-cleanarch): Validating layer dependencies
-* [godepgraph](https://github.com/kisielk/godepgraph): Visualizing dependency graphs
+- [arch-go](https://github.com/arch-go/arch-go): Architectural testing for Go
+- [go-cleanarch](https://github.com/roblaszczak/go-cleanarch): Validating layer dependencies
+- [godepgraph](https://github.com/kisielk/godepgraph): Visualizing dependency graphs
