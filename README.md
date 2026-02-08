@@ -520,6 +520,7 @@ Protobuf contracts are generated but not required for in-process communication:
 - **Single test command** - `go test ./...` works across workspace
 - **Replace directives** - Local overrides for development
 
+
 ## Bridge Module Pattern
 
 ### Detailed Bridge Architecture
@@ -1177,7 +1178,185 @@ type AuthorService interface {
 
 By keeping bridge modules pure, you maintain clean service boundaries and avoid the coupling problems that plague shared-kernel architectures.
 
----
+## Runtime Orchestration: The Supervisor Pattern
+
+While `go.work` groups the code, the **Composition Root** groups the runtime. In a *Modular Monolith*, you need a single `main.go` that initializes all services, wires their bridges, and manages their lifecycles concurrently.
+
+We use the Supervisor Pattern (via errgroup) to manage this. This ensures a "Shared Fate" architecture: if a critical service fails (e.g., DB disconnect), the supervisor cancels the context for all services, shutting down the monolith cleanly so the orchestrator (Kubernetes) can restart the pod.
+
+### The Monolith Composition Root Managed by `errgroup`
+
+Create the file `cmd/monolith/main.go` or `cmd/sm/main.go`:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "golang.org/x/sync/errgroup"
+
+    // Import service modules
+    "github.com/example/service-manager/services/authsvc"
+    "github.com/example/service-manager/services/authorsvc"
+
+    // Import bridges
+    authbridge "github.com/example/service-manager/bridge/authsvc"
+    authorbridge "github.com/example/service-manager/bridge/authorsvc"
+)
+
+func main() {
+    // 1. Root Context with Signal Handling (SIGTERM/SIGINT)
+    ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer cancel()
+
+    // 2. Load Global Config
+    cfg := loadConfig()
+
+    // 3. Wiring Phase (Dependency Injection)
+    // --------------------------------------
+
+    // A. Initialize Provider (Author Service)
+    // We initialize the internal logic and get back the public InprocServer
+    authorContainer := authorsvc.NewContainer(ctx, cfg.AuthorDB)
+
+    // B. Initialize Consumer (Auth Service)
+    // We inject the Author Service's InprocServer directly into Auth Service
+    // The Compiler guarantees type safety via the Bridge Interface
+    authContainer := authsvc.NewContainer(
+        ctx, 
+        cfg.AuthDB,
+        // The Bridge: Adapts the Server to a Client interface
+        authorbridge.NewInprocClient(authorContainer.BridgeServer), 
+    )
+
+    // 4. Execution Phase (The Supervisor)
+    // -----------------------------------
+    g, gCtx := errgroup.WithContext(ctx)
+
+    // --- Start Author Service HTTP Server ---
+    g.Go(func() error {
+        log.Printf("Starting Author Service on %s", cfg.AuthorPort)
+        server := &http.Server{
+            Addr:    cfg.AuthorPort,
+            Handler: authorContainer.HTTPHandler,
+        }
+
+        // Graceful shutdown watcher
+        go func() {
+            <-gCtx.Done()
+            shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+            defer cancel()
+            server.Shutdown(shutdownCtx)
+        }()
+
+        if err := server.ListenAndServe(); err != http.ErrServerClosed {
+            return err // Returns error to errgroup -> cancels gCtx -> stops other services
+        }
+        return nil
+    })
+
+    // --- Start Auth Service HTTP Server ---
+    g.Go(func() error {
+        log.Printf("Starting Auth Service on %s", cfg.AuthPort)
+        server := &http.Server{
+            Addr:    cfg.AuthPort,
+            Handler: authContainer.HTTPHandler,
+        }
+
+        go func() {
+            <-gCtx.Done()
+            shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+            defer cancel()
+            server.Shutdown(shutdownCtx)
+        }()
+
+        if err := server.ListenAndServe(); err != http.ErrServerClosed {
+            return err
+        }
+        return nil
+    })
+
+    // 5. Blocking Wait
+    // If ANY service returns an error, we shut down EVERYTHING.
+    if err := g.Wait(); err != nil {
+        log.Fatalf("Monolith shutdown due to error: %v", err)
+    }
+
+    log.Println("Monolith shutdown gracefully")
+}
+```
+
+### Lifecycle Visualization
+The following diagram illustrates how the errgroup acts as a safety net. Note how an error in authorsvc propagates to stop authsvc immediately.
+
+```mermaid
+sequenceDiagram
+    participant Main as Composition Root
+    participant G as ErrGroup
+    participant A as AuthorService
+    participant B as AuthService
+
+    Main->>G: g.Go(AuthorService)
+    Main->>G: g.Go(AuthService)
+
+    par Parallel Execution
+        G->>A: ListenAndServe()
+        G->>B: ListenAndServe()
+    end
+
+    Note over A: CRITICAL FAILURE<br/>(e.g., DB Lost)
+    A--xG: Returns Error
+
+    Note over G: Cancels Context (gCtx)
+    G->>B: Context.Done() signal
+
+    Note over B: Graceful Shutdown
+    B-->>G: Returns nil (Success)
+
+    G-->>Main: Returns Error from AuthorService
+    Main->>Main: os.Exit(1) -> K8s Restart
+```
+
+### Why "Shared Fate"?
+
+In a distributed microservices environment, if the Author Service goes down, the Auth Service might survive (partial availability). However, in a Modular Monolith, we prefer **Shared Fate** (Fail Fast).
+
+If one module is unhealthy, the process state might be corrupt or resources might be leaking. It is safer to crash the entire pod and let the infrastructure restart a fresh instance than to leave the monolith in a "zombie" state where half the modules are working and half are dead.
+
+
+### Advanced Supervision
+
+For scenarios requiring fine-grained fault tolerance (e.g., ensuring a panic in a background report generator doesn't crash the HTTP API), consider using [suture](https://github.com/thejerf/suture). It brings Erlang-style supervision trees to Go, allowing individual services to restart automatically without taking down the entire process. For most Kubernetes deployments, however, the `errgroup` "fail fast" approach is preferred.
+
+Using `github.com/thejerf/suture` changes the fundamental philosophy of the runtime from **"Fail Fast"** (Shared Fate) to **"Self-Healing"** (Erlang-style Supervision Trees).  
+Here is the breakdown of why you might choose one over the other for the Modular Monolith, and how to implement it.
+
+#### The Core Difference
+
+| Feature | `errgroup` (Recommended for K8s) | `suture` (Recommended for Bare Metal/Daemons) |
+| --- | --- | --- |
+| **Philosophy** | **Crash Together.** If one service fails, the whole pod is unhealthy. Kill it and let Kubernetes restart a fresh instance. | **Keep Running.** If a service crashes, restart just that service. Isolate the failure so the rest of the app stays up. |
+| **Complexity** | **Low.** Standard Go library pattern. | **Medium/High.** Requires understanding supervision trees, backoff strategies, and restart thresholds. |
+| **Recovery** | Delegated to Infrastructure (Docker/K8s). | Handled internally by the Go binary. |
+| **Best For** | HTTP Servers, stateless monoliths. | Background workers, queue consumers, stateful actors. |
+
+
+#### When to use `suture`
+
+You should use `suture` if:
+
+* You have **critical background workers** (e.g., a log collector) that should *never* take down the main HTTP API if they panic.
+* You are running on **Bare Metal** or non-orchestrated environments where a process crash requires manual intervention.
+* You want **granular fault tolerance** (e.g., "Service A" can crash, but "Service B" must stay up).
+
+*Note that it is need to wrap your HTTP servers to respect the `suture.Service` interface specifically, they must return when the context is cancelled:*
 
 ## DDD and Hexagonal Architecture
 
