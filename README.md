@@ -2,6 +2,8 @@
 
 **A Modular monolith pattern for building maintainable Go systems using workspaces with clear boundaries and flexible distribution.**
 
+Before exploring the detailed white-paper, you can read [this 15 minutes blog post](https://blog.piprime.fr/en/innovative-go-modular-monolith-architecture/) that expose the key principles of this modular monolith architecture governed by a Go workspace.
+
 ## Introduction
 
 ### The Monolith vs Microservices Dilemma
