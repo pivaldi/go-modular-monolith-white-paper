@@ -73,8 +73,8 @@ Before presenting the recommended pattern, let's compare common architectural ap
 | Pattern | Boundaries | Performance | Migration | Complexity | Best For |
 |---------|-----------|-------------|-----------|------------|----------|
 | **Go Work + Bridge** | Strong | Excellent | Easy | Medium | 5-20 devs, likely distribution |
-| **Single Module** | Weak | Excellent | Medium | Low | 2-5 devs, unlikely distribution |
 | **Traditional Monolith** | None | Excellent | Hard | Very Low | 1-3 devs, simple domain |
+| **Modular Monolith** | Weak | Excellent | Medium | Low | 2-5 devs, unlikely distribution |
 | **Microservices** | Strongest | Good | N/A | Very High | 20+ devs, known distribution needs |
 | **Shared Kernel** | Weak | Excellent | Very Hard | Medium | Avoid - creates tight coupling |
 
@@ -96,9 +96,9 @@ Before presenting the recommended pattern, let's compare common architectural ap
 
 **When to use:** Solo developer, simple CRUD, MVP, unclear domain.
 
-### 2. Single Module with Convention-Based Boundaries
+### 2. Modular Monolith (Single Module)
 
-**Structure:** One `go.mod`, services use `internal/` packages and public facades.
+**Structure:** One `go.mod`, services use `internal/` packages and public facades with clearer boundaries than pure layered approach.
 
 **Pros:**
 - Simple setup
