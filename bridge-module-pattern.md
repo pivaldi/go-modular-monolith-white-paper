@@ -320,24 +320,72 @@ func main() {
 
 ## Bridge Anti-Patterns
 
+**Note:** Our `arch-test` suite now physically prevents importing internal packages or adding external dependencies in bridge modules. However, **logical coupling** is still possible and must be caught in code review. Even if code compiles, it doesn't mean it belongs in a bridge.
+
 **Bridge modules must remain:**
 
 - **Stateless** - No global variables, no caches, no state
-- **Business-logic free** - No domain rules, no validation beyond DTO structure
+- **Business-logic free** - No domain rules, no validation, not even "pure" helper functions
 - **DTO + interface only** - Just data contracts and method signatures
 
-**Warning Signs You're Creating a Shared Kernel:**
+### What's Now Impossible (Enforced by arch-test)
 
-✗ **Business rules in bridge modules**
+These violations will be caught by `arch-test` in CI and fail the build:
+
+✗ **Bridge importing service internals**
 ```go
-// BAD: Business logic in bridge
-func (dto *AuthorDTO) Validate() error {
-    if len(dto.Name) < 3 {
-        return errors.New("name too short")
-    }
-    // This is domain logic - belongs in authorsvc/internal/domain
+// BAD: Compiler allows, but arch-test prevents
+package authorsvc
+
+import "github.com/.../services/authorsvc/internal/domain/author"
+
+type AuthorService interface {
+    GetAuthor(ctx context.Context, id string) (*author.Author, error)
+    // arch-test detects internal/ import and FAILS
 }
 ```
+
+✗ **Bridge with external dependencies**
+```go
+// BAD: Adding dependencies in bridge/authorsvc/go.mod
+module github.com/example/service-manager/bridge/authorsvc
+
+require (
+    github.com/google/uuid v1.3.0  // arch-test detects require and FAILS
+)
+```
+
+✓ **What arch-test enforces:**
+- Bridge `go.mod` has **zero** `require` statements
+- Bridge code never imports any `internal/` packages
+- Violations fail CI before merge
+
+### What's Still Dangerous (Human Element)
+
+These violations compile successfully but break architectural principles. They must be caught in code review:
+
+✗ **Bridge bloat with business logic**
+```go
+// BAD: Compiles fine, but violates bridge purity
+package authorsvc
+
+func (dto *AuthorDTO) Validate() error {
+    if len(dto.Name) < 3 {
+        return errors.New("name too short")  // Domain logic doesn't belong here
+    }
+    // Even though this is "pure" logic with no dependencies,
+    // it creates coupling - belongs in authorsvc/internal/domain
+}
+
+func CalculateAuthorRating(articles int, followers int) int {
+    return articles*10 + followers  // Pure calculation, but still wrong place!
+}
+```
+
+**Why this is dangerous:**
+- Creates logical coupling across services that import the bridge
+- Violates Single Responsibility - bridges are contracts, not business logic
+- Even "pure" helper functions create shared-kernel problems
 
 ✓ **Keep bridges pure:**
 ```go
@@ -348,72 +396,99 @@ type AuthorDTO struct {
     Bio  string
 }
 
-// Validation happens in the service's domain layer
+// Validation and business logic live in authorsvc/internal/domain
+// Bridges only define the contract
 ```
 
 ✗ **Shared utilities in bridge**
 ```go
-// BAD: Shared business utilities
+// BAD: Compiles, but creates service coupling
 package authorsvc
 
-func CalculateAuthorRating(articles int, followers int) int {
-    // This creates coupling - multiple services depend on this logic
+import "time"
+
+func FormatAuthorDate(t time.Time) string {
+    return t.Format("2006-01-02")  // Seemingly innocent utility
+    // Problem: Multiple services now depend on this formatting logic
 }
 ```
 
-✗ **Domain models in bridge**
+**Why this is wrong:**
+- If formatting changes, ALL services importing this bridge are affected
+- You've recreated a shared-kernel monolith with loose coupling
+- Each service should handle its own formatting needs
+
+✗ **Bridge-Internal confusion (DTOs as Entities)**
 ```go
-// BAD: Exposing internal domain models
-package authorsvc
+// BAD: Domain layer using bridge DTOs directly
+package domain
 
-import "github.com/.../services/authorsvc/internal/domain/author"
+import "github.com/.../bridge/authorsvc"
 
-type AuthorService interface {
-    GetAuthor(ctx context.Context, id string) (*author.Author, error)
-    // Exposing internal domain type breaks the boundary
+type User struct {
+    ID      string
+    Author  *authorsvc.AuthorDTO  // Domain using DTO as entity - WRONG
 }
 ```
 
-✓ **Use DTOs instead:**
+**Why this is dangerous:**
+- Domain layer becomes coupled to external contract changes
+- DTOs are for transport, Entities are for business logic
+- Breaks dependency inversion (domain depends on adapter contract)
+
+✓ **Proper layering:**
 ```go
-// GOOD: Bridge-specific DTOs decouple from internal domain
-type AuthorDTO struct {
-    ID   string
-    Name string
+// GOOD: Domain has its own types
+package domain
+
+type Author struct {  // Domain entity
+    ID   AuthorID
+    Name AuthorName
 }
 
-type AuthorService interface {
-    GetAuthor(ctx context.Context, id string) (*AuthorDTO, error)
-    // DTO is owned by the bridge, not the internal domain
+// Adapter layer maps between domain entities and bridge DTOs
+// services/authsvc/internal/adapters/outbound/authorclient/inproc/client.go
+func (c *Client) GetAuthor(id string) (*domain.Author, error) {
+    dto, err := c.bridge.GetAuthor(ctx, id)
+    // Map DTO → Domain Entity
+    return &domain.Author{
+        ID:   domain.NewAuthorID(dto.ID),
+        Name: domain.NewAuthorName(dto.Name),
+    }, nil
 }
 ```
 
 **The Golden Rule:**
 
-> If you're tempted to import a bridge module from multiple services to share business logic, you're recreating a shared-kernel monolith. Stop and refactor the logic into the appropriate service's domain layer instead.
+> If you're tempted to add ANY logic to a bridge module (even "pure" helper functions), you're recreating a shared-kernel monolith. Stop and refactor the logic into the appropriate service's domain layer instead.
 
-**What Belongs in Bridge Modules:**
+### What Belongs Where
 
+**In Bridge Modules** (`bridge/authorsvc/`):
 - Interface definitions (service contracts)
-- DTOs (pure data structures)
+- DTOs (pure data structures, no methods except basic getters/setters)
 - Error constants (semantic errors like `ErrNotFound`)
 - InprocClient (thin wrapper that calls the interface)
 
-**What Belongs in Service Internal Adapters** (`services/*/internal/adapters/inbound/bridge/`):
-
+**In Service Internal Adapters** (`services/*/internal/adapters/inbound/bridge/`):
 - InprocServer (implements the bridge interface)
-- DTO mapping logic (bridge DTOs ↔ internal types)
+- DTO mapping logic (bridge DTOs ↔ domain entities)
 - Error translation (domain errors → bridge errors)
 
-**What Does NOT Belong Anywhere in Bridges or Adapters:**
+**In Service Domain Layer** (`services/*/internal/domain/`):
+- Business validation rules
+- Domain calculations and algorithms
+- Entity behavior and invariants
+- Value objects with rich behavior
 
-- Business validation rules (belongs in domain layer)
-- Domain calculations or algorithms (belongs in domain layer)
-- Shared utilities across services (create a separate shared library if truly needed)
-- Database models or repository logic (belongs in persistence adapters)
-- HTTP handlers (belongs in HTTP inbound adapters)
-- Configuration (belongs in service config package)
-- Feature flags (belongs in service infrastructure)
+**NOT in Bridges or Adapters:**
+- Business validation rules (→ domain layer)
+- Domain calculations or algorithms (→ domain layer)
+- Shared utilities across services (→ create separate shared library module if truly needed)
+- Database models or repository logic (→ persistence adapters)
+- HTTP handlers (→ HTTP inbound adapters)
+- Configuration (→ service config package)
+- Feature flags (→ service infrastructure)
 
-By keeping bridge modules truly dependency-free and implementations in service adapters, you achieve true module independence and avoid the coupling problems that plague shared-kernel architectures.
+By keeping bridge modules truly dependency-free and logically pure, you achieve true module independence and avoid the coupling problems that plague shared-kernel architectures.
 
