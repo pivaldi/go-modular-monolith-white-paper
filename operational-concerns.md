@@ -74,10 +74,12 @@ A comprehensive validation tool that checks:
 - Adapters implement application ports (dependency inversion)
 
 **Module Dependencies:**
-- Bridge modules have no dependencies (pure interfaces)
-- Services depend only on: bridges, contracts, and standard libraries
+- Bridge modules have literally ZERO dependencies (no `require` statements in go.mod)
+- Bridge modules contain ONLY: interfaces, DTOs, errors, and InprocClient (thin wrapper)
+- InprocServer lives in service internal adapters (not in bridge)
+- Services depend only on: bridges, contracts (optional), and standard libraries
 - No circular dependencies between modules (at go.mod level - compiler already prevents package-level cycles)
-- Dependency graph flows in correct direction
+- Dependency graph flows in correct direction: consumer → bridge → (nothing)
 
 **Import Graph Validation:**
 - Validate module dependency graph

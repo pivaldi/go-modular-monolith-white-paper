@@ -259,13 +259,16 @@ Each service is an independent Go module because:
 
 **2. Why Bridge Modules?**
 
-Bridge modules provide explicit service boundaries:
-- **Public API definition** - Clear contract in Go interfaces
-- **In-process performance** - Direct function calls, zero network overhead
-- **Explicit seam** - Visible boundary between services
-- **Compiler enforcement** - Can only import bridge, not service internals
-- **Flexible implementation** - Same interface works for in-process and network
+Bridge modules provide truly independent service boundaries:
+- **Public API definition** - Clear contract using Go interfaces
+- **True module independence** - Bridge has literally zero dependencies (no `require` statements)
+- **Compiler enforcement** - Services cannot import other service internals (different Go modules)
+- **In-process performance** - Direct function calls via interfaces, zero network overhead
+- **Explicit seam** - Visible boundary between services in the module structure
+- **Flexible implementation** - Same interface works for in-process and network transports
 - **Testability** - Easy to mock the bridge interface
+
+**Key architectural principle:** Bridge modules contain ONLY interfaces, DTOs, errors, and thin client wrappers. All implementations (including InprocServer) live in service internal adapters, where they can access the service's application layer.
 
 **3. Why Optional Protobuf?**
 

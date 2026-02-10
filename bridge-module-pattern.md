@@ -6,12 +6,14 @@
 
 ### Bridge Module Responsibilities
 
-A bridge module for a service:
+A bridge module for a service contains ONLY public contracts:
 1. **Defines the public API** with Go interfaces
 2. **Defines DTOs** ([data transfer objects](https://martinfowler.com/eaaCatalog/dataTransferObject.html))
-3. **Provides in-process server** that wraps service internals
-4. **Provides in-process client** that calls server directly
-5. **Defines public error types**
+3. **Defines public error types**
+4. **Provides in-process client** that calls the interface (thin wrapper)
+
+The service itself (not the bridge) provides:
+5. **In-process server implementation** in `services/*/internal/adapters/inbound/bridge/` that implements the bridge interface
 
 ### Example: Author Service Bridge
 
@@ -23,24 +25,31 @@ Before diving into the full implementation, let's understand what these componen
 
 **What They Are:**
 
-- **InprocServer**: The "server side" adapter that wraps a service's internal application layer and exposes it through the bridge interface
-- **InprocClient**: The "client side" adapter that calls InprocServer directly via function calls (no network)
+- **InprocServer**: An inbound adapter that lives in `services/authorsvc/internal/adapters/inbound/bridge/` and implements the bridge interface by wrapping the service's application layer
+- **InprocClient**: A thin client wrapper that lives in `bridge/authorsvc/` and calls any implementation of the bridge interface (no network)
 
 **Simplified Structure:**
 
 ```go
-// InprocServer wraps the service's internal application layer
+// Bridge Module: bridge/authorsvc/inproc_client.go
+// InprocClient accepts ANY implementation of AuthorService
+type InprocClient struct {
+    server AuthorService  // Interface reference (not concrete type!)
+}
+
+// Service Adapter: services/authorsvc/internal/adapters/inbound/bridge/inproc_server.go
+// InprocServer implements the bridge interface
 type InprocServer struct {
-    // References to the REAL service's application layer
+    // References to the service's internal application layer
     getAuthorQuery    *query.GetAuthorQuery      // from authorsvc/internal/application/query
     listAuthorsQuery  *query.ListAuthorsQuery    // from authorsvc/internal/application/query
     createAuthorCmd   *command.CreateAuthorCommand  // from authorsvc/internal/application/command
     updateAuthorCmd   *command.UpdateAuthorCommand  // from authorsvc/internal/application/command
 }
 
-// InprocClient calls the server directly (no network)
-type InprocClient struct {
-    server *InprocServer  // Direct reference to server instance
+// Factory returns interface type for loose coupling
+func NewInprocServer(...) AuthorService {
+    return &InprocServer{...}
 }
 ```
 
@@ -58,23 +67,25 @@ graph TB
     end
 
     subgraph bridge["BRIDGE (bridge/authorsvc)"]
-        inproc_client["InprocClient"]
-        inproc_server["InprocServer"]
+        inproc_client["InprocClient<br/>(thin wrapper)"]
+        interface["AuthorService<br/>(interface)"]
 
-        inproc_client -->|server.GetAuthor| inproc_server
+        inproc_client -->|implements| interface
     end
 
     subgraph provider["AUTHORSVC (Provider Service)"]
+        inproc_server["InprocServer<br/>(internal/adapters/inbound/bridge)"]
         query["GetAuthorQuery.Execute"]
         domain["Domain Layer"]
         repo["Repository"]
 
+        inproc_server -->|implements AuthorService<br/>CAN import internal| query
         query --> domain
         domain --> repo
     end
 
     inproc_adapter -->|calls| inproc_client
-    inproc_server -->|"CAN import authorsvc/internal<br/>(special permission!)"| query
+    inproc_client -->|calls via interface| inproc_server
 
     style consumer fill:#e1f5ff
     style bridge fill:#fff4e1
@@ -83,84 +94,91 @@ graph TB
 
 **Lifecycle:**
 
-1. **Authorsvc Startup** (provider service):
+1. **Monolith main.go** (direct explicit wiring):
    ```go
-   // authorsvc/cmd/main.go
+   // cmd/monolith/main.go
+   package main
+
+   import (
+       bridgeauthor "github.com/example/service-manager/bridge/authorsvc"
+       authorconfig "github.com/example/service-manager/services/authorsvc/config"
+       authoradapters "github.com/example/service-manager/services/authorsvc/internal/adapters/inbound/bridge"
+       "github.com/example/service-manager/services/authsvc"
+   )
+
    func main() {
-       // Initialize internal application layer
-       getAuthorQuery := query.NewGetAuthorQuery(repo)
-       createAuthorCmd := command.NewCreateAuthorCommand(repo)
+       ctx := context.Background()
 
-       // Create InprocServer wrapping the application layer
-       authorServer := authorsvc.NewInprocServer(
-           getAuthorQuery,
-           // ... other queries/commands
-       )
+       // Phase 1: Load author service config
+       authorCfg, _ := authorconfig.Load()
 
-       // Register as singleton (shared across services in same process)
-       RegisterAuthorService(authorServer)
+       // Phase 2: Create InprocServer (lives in authorsvc internal adapters)
+       // Returns: bridgeauthor.AuthorService interface
+       authorServer := authoradapters.NewInprocServer(authorCfg, logger)
+
+       // Phase 3: Wrap with InprocClient (lives in bridge module)
+       // Accepts: bridgeauthor.AuthorService interface
+       authorClient := bridgeauthor.NewInprocClient(authorServer)
+
+       // Phase 4: Initialize consumer service with the client
+       authCfg, _ := authconfig.Load()
+       authService := authsvc.New(authCfg, authorClient)
+
+       // Phase 5: Run services via errgroup supervisor
+       g, gCtx := errgroup.WithContext(ctx)
+       g.Go(func() error { return authorServer.Run(gCtx) })
+       g.Go(func() error { return authService.Run(gCtx) })
+
+       if err := g.Wait(); err != nil {
+           log.Fatal(err)
+       }
    }
    ```
 
-2. **Authsvc Startup** (consumer service):
-   ```go
-   // authsvc/cmd/main.go
-   func main() {
-       // Get reference to authorsvc's InprocServer (singleton)
-       authorServer := GetAuthorService()
-
-       // Create InprocClient that calls the server
-       authorBridge := authorsvc.NewInprocClient(authorServer)
-
-       // Wrap in port adapter
-       authorClient := inproc.NewClient(authorBridge)
-
-       // Wire into application
-       deps := infra.InitializeDependencies(cfg, authorClient)
-   }
-   ```
-
-3. **Runtime Call Flow**:
+2. **Runtime Call Flow**:
    ```go
    // authsvc application layer
    result := authorClient.GetAuthor(ctx, "author-123")
        │
        ▼ (interface call)
-   // authsvc adapter
+   // authsvc outbound adapter
    inprocAdapter.GetAuthor(ctx, "author-123")
        │
-       ▼ (direct function call)
-   // bridge InprocClient
+       ▼ (interface call)
+   // bridge InprocClient (thin wrapper in bridge module)
    client.server.GetAuthor(ctx, "author-123")
        │
-       ▼ (direct function call)
-   // bridge InprocServer
+       ▼ (interface call - no knowledge of concrete InprocServer type!)
+   // authorsvc InprocServer (inbound adapter in service internal)
    server.getAuthorQuery.Execute(ctx, "author-123")
        │
-       ▼ (direct function call)
+       ▼ (direct function call - same module, can import internals)
    // authorsvc internal application layer
    query.Execute(ctx, "author-123")
    ```
 
 **Key Principles:**
 
-1. **Special Import Permission**:
-   - InprocServer lives in `bridge/authorsvc/`
-   - It's the ONLY code outside `authorsvc/` allowed to import `authorsvc/internal/*`
-   - This is intentional and controlled
+1. **True Module Independence**:
+   - InprocServer lives in `services/authorsvc/internal/adapters/inbound/bridge/`
+   - Bridge module has literally zero dependencies (no `require` statements)
+   - InprocServer CAN import service internals (same Go module)
+   - Bridge CANNOT import service internals (different Go module - compiler enforced)
 
-2. **Thin Delegation Layer**:
+2. **Interface-Based Coupling**:
+   - InprocClient holds `AuthorService` interface, not `*InprocServer` concrete type
+   - NewInprocServer() returns `AuthorService` interface
+   - Enables loose coupling and testability
+   - Consumers never know about the concrete implementation
+
+3. **Thin Delegation Layer**:
    - InprocServer contains NO business logic
    - It only translates between bridge DTOs and internal types
    - It maps domain errors to bridge errors
-
-3. **Shared Singleton**:
-   - When services run in same process, they share ONE InprocServer instance
-   - No duplication of application layer instances
-   - Efficient memory usage
+   - Pure adapter pattern
 
 4. **Zero Network Overhead**:
-   - InprocClient -> InprocServer is a direct function call
+   - InprocClient -> InprocServer is a direct function call via interface
    - No serialization, no HTTP, no network latency
    - Performance identical to direct internal imports (but with boundaries!)
 
@@ -221,37 +239,56 @@ func (c *Client) GetAuthor(ctx context.Context, authorID string) (*ports.AuthorI
 
 ### Wiring in main.go
 
+The monolith's main.go performs direct explicit wiring with clear initialization order:
+
 ```go
-//services/authsvc/cmd/authsvc/main.go
+// cmd/monolith/main.go
 package main
 
 import (
-    "log"
-
-    "github.com/example/service-manager/bridge/authorsvc"
-    "github.com/example/service-manager/services/authsvc/internal/adapters/outbound/authorclient/inproc"
-    "github.com/example/service-manager/services/authsvc/internal/infra"
+    bridgeauthor "github.com/example/service-manager/bridge/authorsvc"
+    authorconfig "github.com/example/service-manager/services/authorsvc/config"
+    authoradapters "github.com/example/service-manager/services/authorsvc/internal/adapters/inbound/bridge"
+    authconfig "github.com/example/service-manager/services/authsvc/config"
+    "github.com/example/service-manager/services/authsvc"
+    authorclientadapter "github.com/example/service-manager/services/authsvc/internal/adapters/outbound/authorclient/inproc"
 )
 
 func main() {
-    cfg := infra.LoadConfig()
+    ctx := context.Background()
 
-    // Get the AuthorService InprocServer from authorsvc
-    // (In practice, this is a singleton shared across services in same process)
-    authorServer := getAuthorServiceInprocServer() // Implementation detail
+    // 1. Config: Load author service configuration
+    authorCfg, _ := authorconfig.Load()
 
-    // Create in-process client
-    authorBridge := authorsvc.NewInprocClient(authorServer)
+    // 2. Provider: Create InprocServer (returns interface)
+    authorServer := authoradapters.NewInprocServer(authorCfg, logger)
 
-    // Wrap in adapter
-    authorClient := inproc.NewClient(authorBridge)
+    // 3. Bridge: Wrap with InprocClient
+    authorClient := bridgeauthor.NewInprocClient(authorServer)
 
-    // Wire up authsvc with the author client
-    deps := infra.InitializeDependencies(cfg, authorClient)
+    // 4. Consumer Adapter: Wrap bridge client in outbound adapter
+    authorClientAdapter := authorclientadapter.NewClient(authorClient)
 
-    // Start server...
+    // 5. Consumer Service: Initialize with dependencies
+    authCfg, _ := authconfig.Load()
+    authService := authsvc.New(authCfg, authorClientAdapter)
+
+    // 6. Run: Start all services via errgroup
+    g, gCtx := errgroup.WithContext(ctx)
+    g.Go(func() error { return authorServer.Run(gCtx) })
+    g.Go(func() error { return authService.Run(gCtx) })
+
+    if err := g.Wait(); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
+
+**Key Points:**
+- **Initialization order is explicit**: Provider service before consumer service
+- **No registry needed**: Direct wiring in main.go
+- **Type safety**: Compiler enforces correct interfaces
+- **Interface-based**: Everything operates on `AuthorService` interface, not concrete types
 
 ## Bridge Pattern Benefits
 
@@ -360,17 +397,23 @@ type AuthorService interface {
 - Interface definitions (service contracts)
 - DTOs (pure data structures)
 - Error constants (semantic errors like `ErrNotFound`)
-- InprocServer (wraps internal application layer)
-- InprocClient (calls InprocServer)
+- InprocClient (thin wrapper that calls the interface)
 
-**What Does NOT Belong in Bridge Modules:**
+**What Belongs in Service Internal Adapters** (`services/*/internal/adapters/inbound/bridge/`):
 
-- Business validation rules
-- Domain calculations or algorithms
-- Shared utilities across services
-- Database models or repository logic
-- HTTP handlers or transport-specific code
-- Configuration or feature flags
+- InprocServer (implements the bridge interface)
+- DTO mapping logic (bridge DTOs ↔ internal types)
+- Error translation (domain errors → bridge errors)
 
-By keeping bridge modules pure, you maintain clean service boundaries and avoid the coupling problems that plague shared-kernel architectures.
+**What Does NOT Belong Anywhere in Bridges or Adapters:**
+
+- Business validation rules (belongs in domain layer)
+- Domain calculations or algorithms (belongs in domain layer)
+- Shared utilities across services (create a separate shared library if truly needed)
+- Database models or repository logic (belongs in persistence adapters)
+- HTTP handlers (belongs in HTTP inbound adapters)
+- Configuration (belongs in service config package)
+- Feature flags (belongs in service infrastructure)
+
+By keeping bridge modules truly dependency-free and implementations in service adapters, you achieve true module independence and avoid the coupling problems that plague shared-kernel architectures.
 

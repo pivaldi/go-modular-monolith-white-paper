@@ -1,3 +1,21 @@
+# Inbound Adapters
+
+Inbound adapters (primary/driving adapters) deliver requests to the application layer. They translate external requests into application commands/queries.
+
+## Types of Inbound Adapters
+
+Services typically have multiple inbound adapters:
+- **Bridge adapter** (`internal/adapters/inbound/bridge/`) - For in-process calls from other services
+- **HTTP adapter** (`internal/adapters/inbound/http/`) - For REST API endpoints
+- **Connect adapter** (`internal/adapters/inbound/connect/`) - For gRPC/Connect calls
+- **CLI adapter** (`internal/adapters/inbound/cli/`) - For command-line interfaces
+
+All follow the same pattern: translate external requests → call application layer → translate responses.
+
+---
+
+## Example: HTTP Adapter
+
 `services/authsvc/internal/adapters/inbound/http/handlers/login.go`:
 
 ```go

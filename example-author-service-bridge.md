@@ -1,3 +1,25 @@
+# Author Service Bridge Module
+
+The bridge module contains ONLY the public API contract: interfaces, DTOs, errors, and the thin client wrapper. It has **zero dependencies**.
+
+## Bridge Module Structure
+
+```
+bridge/authorsvc/
+├── go.mod              # No dependencies (literally zero!)
+├── api.go              # AuthorService interface
+├── dto.go              # Data transfer objects
+├── errors.go           # Public error types
+└── inproc_client.go    # Thin client wrapper
+```
+
+**Note:** InprocServer is NOT in the bridge module. It lives in `services/authorsvc/internal/adapters/inbound/bridge/inproc_server.go` as an inbound adapter.
+
+---
+
+## Bridge Module Files
+
+### go.mod
 
 `bridge/authorsvc/go.mod`:
 
@@ -22,9 +44,9 @@ import (
 // AuthorService is the public API for the author service.
 // Any service can import and use this interface.
 //
-// Implementations:
-//   - InprocServer (wraps authorsvc/internal, in-process)
-//   - Connect handler (network transport over HTTP)
+// Implementations (live in service, NOT in bridge):
+//   - InprocServer in services/authorsvc/internal/adapters/inbound/bridge/
+//   - Connect handler in services/authorsvc/internal/adapters/inbound/connect/
 type AuthorService interface {
     GetAuthor(ctx context.Context, id string) (*AuthorDTO, error)
     ListAuthors(ctx context.Context, req ListAuthorsRequest) (*ListAuthorsResponse, error)

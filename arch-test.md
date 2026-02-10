@@ -218,7 +218,9 @@ func checkAdapterDirection() error {
     })
 }
 
-// checkBridgePurity ensures bridge modules have no dependencies
+// checkBridgePurity ensures bridge modules:
+// 1. Have no external dependencies in go.mod (literally zero require statements)
+// 2. Never import any internal/ packages (from any service)
 func checkBridgePurity() error {
     bridgeModules, err := os.ReadDir("bridge")
     if err != nil {
@@ -231,45 +233,117 @@ func checkBridgePurity() error {
             continue
         }
 
-        goModPath := filepath.Join("bridge", bridge.Name(), "go.mod")
-        content, err := os.ReadFile(goModPath)
-        if err != nil {
+        bridgePath := filepath.Join("bridge", bridge.Name())
+
+        // Check 1: Verify go.mod has NO external dependencies
+        if err := checkGoModPurity(bridgePath, bridge.Name()); err != nil {
+            return err
+        }
+
+        // Check 2: Verify bridge files never import internal/ packages
+        if err := checkNoInternalImports(bridgePath, bridge.Name()); err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+
+// checkGoModPurity verifies a bridge module has zero external dependencies
+func checkGoModPurity(bridgePath, bridgeName string) error {
+    goModPath := filepath.Join(bridgePath, "go.mod")
+    content, err := os.ReadFile(goModPath)
+    if err != nil {
+        return nil // go.mod might not exist yet
+    }
+
+    // Parse go.mod for require statements
+    lines := strings.Split(string(content), "\n")
+    inRequire := false
+    for _, line := range lines {
+        line = strings.TrimSpace(line)
+
+        if strings.HasPrefix(line, "require (") {
+            inRequire = true
             continue
         }
 
-        // Check for require statements (besides standard library)
-        lines := strings.Split(string(content), "\n")
-        inRequire := false
-        for _, line := range lines {
-            line = strings.TrimSpace(line)
+        if inRequire && line == ")" {
+            inRequire = false
+            continue
+        }
 
-            if strings.HasPrefix(line, "require (") {
-                inRequire = true
-                continue
-            }
-
-            if inRequire && line == ")" {
-                inRequire = false
-                continue
-            }
-
-            if inRequire || strings.HasPrefix(line, "require ") {
-                // Allow only indirect dependencies (from go.sum)
-                if !strings.Contains(line, "// indirect") && !strings.HasPrefix(line, "//") {
-                    // Check if it's not a standard library
-                    parts := strings.Fields(line)
-                    if len(parts) > 0 && strings.Contains(parts[0], ".") {
-                        return fmt.Errorf(
-                            "bridge/%s has external dependency: %s (bridges must be dependency-free)",
-                            bridge.Name(), line,
-                        )
-                    }
+        if inRequire || strings.HasPrefix(line, "require ") {
+            // Allow only indirect dependencies (from go.sum)
+            if !strings.Contains(line, "// indirect") && !strings.HasPrefix(line, "//") {
+                // Check if it's an external dependency (contains '.')
+                parts := strings.Fields(line)
+                if len(parts) > 0 && strings.Contains(parts[0], ".") {
+                    return fmt.Errorf(
+                        "bridge/%s has external dependency: %s\n"+
+                        "\n"+
+                        "Bridges must have ZERO dependencies (no require statements).\n"+
+                        "\n"+
+                        "If you see service internals here, InprocServer is in the wrong location.\n"+
+                        "Move InprocServer to: services/%s/internal/adapters/inbound/bridge/\n"+
+                        "\n"+
+                        "Bridge modules should contain ONLY:\n"+
+                        "  - Interfaces (api.go)\n"+
+                        "  - DTOs (dto.go)\n"+
+                        "  - Errors (errors.go)\n"+
+                        "  - InprocClient (thin wrapper)\n",
+                        bridgeName, line, bridgeName,
+                    )
                 }
             }
         }
     }
 
     return nil
+}
+
+// checkNoInternalImports verifies bridge code never imports internal/ packages
+func checkNoInternalImports(bridgePath, bridgeName string) error {
+    err := filepath.Walk(bridgePath, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+
+        if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+            return nil
+        }
+
+        fset := token.NewFileSet()
+        f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+        if err != nil {
+            return err
+        }
+
+        for _, imp := range f.Imports {
+            importPath := strings.Trim(imp.Path.Value, "\"")
+
+            // Bridge modules CANNOT import ANY internal/ packages
+            if strings.Contains(importPath, "/internal/") {
+                return fmt.Errorf(
+                    "bridge/%s/%s: imports internal package: %s\n"+
+                    "\n"+
+                    "Bridge modules must NEVER import internal/ packages from any service.\n"+
+                    "\n"+
+                    "If this is InprocServer, it belongs in the service's internal adapters:\n"+
+                    "  Move to: services/%s/internal/adapters/inbound/bridge/inproc_server.go\n"+
+                    "\n"+
+                    "Bridge modules can only import:\n"+
+                    "  - Standard library\n"+
+                    "  - Other bridge modules (public APIs)\n",
+                    bridgeName, filepath.Base(path), importPath, bridgeName,
+                )
+            }
+        }
+
+        return nil
+    })
+
+    return err
 }
 
 // checkModuleDependencies validates the module dependency graph.
