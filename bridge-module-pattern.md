@@ -25,7 +25,7 @@
       - [2. Prevention of Cyclic Dependencies](#2-prevention-of-cyclic-dependencies)
       - [3. Physical vs. Logical Boundaries](#3-physical-vs-logical-boundaries)
       - [Summary Comparison](#summary-comparison)
-  - [Annexe: Why `/brigde/xxx` instead of `/service/api/xxx`](#annexe-why-brigdexxx-instead-of-serviceapixxx)
+  - [Annexe: Why `/brigde/xxx` instead of `/service/api/xxx`?](#annexe-why-brigdexxx-instead-of-serviceapixxx)
     - [Claude Code Response](#claude-code-response)
     - [Gemini Response](#gemini-response)
     - [GPT Response](#gpt-response)
@@ -616,9 +616,9 @@ Moving the API into the service folder erodes the physical boundary that tooling
 
 **Conclusion:** Keep the API in the separate `bridge/` module. It is the only way to guarantee the **Independent Dependency Graphs** that make this architecture scalable.
 
-## Annexe: Why `/brigde/xxx` instead of `/service/api/xxx`
+## Annexe: Why `/brigde/xxx` instead of `/service/api/xxx`?
 
-This has been a long debate within our technical team, This was a long debate within our technical team. So I report here I choosen to keep the `/bridge` design.
+This has been a long debate within our technical team. So I report here I choosen to keep the `/bridge` design.
 
 At the question
 > I would like to remove /brigde and move the content in the related service/api. What do think about this design. Be conscise
@@ -628,16 +628,16 @@ At the question
 **Don't do it. Here's why:**
 
 **Fatal flaw: Circular dependencies**
-- If Orders needs Users and Users needs Orders, services/orders/api ↔ services/users/api creates a Go module cycle
+- If Orders needs Users and Users needs Orders, `services/orders/api` ↔ `services/users/api` creates a Go module cycle
 - Your build literally breaks - Go doesn't allow this
 - Bridge modules break the cycle because they're independent leaves
 
 **Real cost: Source-level pollution**
-- Importing services/authorsvc/api forces importing authorsvc's entire go.mod (pgx, AWS SDK, kafka-go, etc.)
+- Importing `services/authorsvc/api` forces importing `authorsvc`'s entire go.mod (pgx, AWS SDK, kafka-go, etc.)
 - go test in one service downloads dependencies from all services it talks to
 - CI becomes slower, local iteration becomes slower
 
-**When services/api works:**
+**When `services/api` works:**
 - Single-direction dependencies only (no cycles)
 - Small number of services (2-3)
 - Willing to accept slower tests/builds
@@ -647,14 +647,14 @@ The `bridge/` directory exists primarily to prevent circular module dependencies
 
 ### Gemini Response
 
-**Here is the concise breakdown of why you should keep the bridge/ directory separate:**
+**Here is the concise breakdown of why you should keep the `bridge/` directory separate:**
 1. **The "Dependency Hell" Trap:**
    If `AuthService` imports `authorsvc/api`, it must require the entire `authorsvc` module. `AuthService` will implicitly inherit all of `AuthorService`'s dependencies (database drivers, AWS SDKs), even if it only needs a struct definition.
    The separate bridge module prevents this by having zero dependencies.
 2. **Circular Dependencies:**
    In a monolith, services often need to talk bi-directionally (A calls B, B calls A). If the API is inside the service module, this creates a Go Module Cycle, which the compiler forbids.
    Separate bridge modules act as independent leaves in the graph, structurally preventing cycles.
-3. **Physical Boundary Enforcement:** 
+3. **Physical Boundary Enforcement:**
    Co-locating the API erodes the physical boundary.
    It makes it significantly harder for tooling (like arch-test) to enforce that the public contract never imports internal implementation details.
 
