@@ -1,5 +1,29 @@
 # Bridge Module Pattern
 
+## Table of Contents
+
+- [Bridge Module Pattern](#bridge-module-pattern)
+  - [Detailed Bridge Architecture](#detailed-bridge-architecture)
+    - [Bridge Module Responsibilities](#bridge-module-responsibilities)
+    - [Example: Author Service Bridge](#example-author-service-bridge)
+    - [Understanding InprocServer and InprocClient](#understanding-inprocserver-and-inprocclient)
+    - [Using the Bridge in Another Service](#using-the-bridge-in-another-service)
+    - [Wiring in main.go](#wiring-in-maingo)
+  - [Bridge Pattern Benefits](#bridge-pattern-benefits)
+  - [Bridge Anti-Patterns](#bridge-anti-patterns)
+    - [What's Now Impossible (Enforced by arch-test)](#whats-now-impossible-enforced-by-arch-test)
+    - [What's Still Dangerous (Human Element)](#whats-still-dangerous-human-element)
+    - [What Belongs Where](#what-belongs-where)
+    - [Deep Dive: Why This Complexity?](#deep-dive-why-this-complexity)
+      - [1. The "Dependency Hell" Problem](#1-the-dependency-hell-problem)
+      - [2. Contract Sharing vs. Code Sharing](#2-contract-sharing-vs-code-sharing)
+      - [3. The "Pure Bridge" Rule](#3-the-pure-bridge-rule)
+    - [Architecture Advocacy: The Case for the Pure Bridge](#architecture-advocacy-the-case-for-the-pure-bridge)
+      - [1. The "Dependency Hell" Trap](#1-the-dependency-hell-trap)
+      - [2. Prevention of Cyclic Dependencies](#2-prevention-of-cyclic-dependencies)
+      - [3. Physical vs. Logical Boundaries](#3-physical-vs-logical-boundaries)
+      - [Summary Comparison](#summary-comparison)
+
 ## Detailed Bridge Architecture
 
 **The bridge module is the key innovation that enables strong boundaries with flexible transport.**

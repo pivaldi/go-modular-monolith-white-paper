@@ -2,6 +2,71 @@
 
 **A Modular monolith pattern for building maintainable Go systems using workspaces with clear boundaries and flexible distribution.**
 
+## Table of Contents
+<!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
+
+- [Go Modular Monolith: Architecture White Paper](#go-modular-monolith-architecture-white-paper)
+  - [Introduction](#introduction)
+    - [The Monolith vs Microservices Dilemma](#the-monolith-vs-microservices-dilemma)
+    - [What This Pattern Provides](#what-this-pattern-provides)
+    - [Who This Is For](#who-this-is-for)
+  - [Problem Statement](#problem-statement)
+    - [The Challenges We're Solving](#the-challenges-were-solving)
+    - [What Success Looks Like](#what-success-looks-like)
+  - [Alternative Approaches](#alternative-approaches)
+    - [Approach Comparison Matrix](#approach-comparison-matrix)
+    - [1. Traditional Layered Monolith](#1-traditional-layered-monolith)
+    - [2. Modular Monolith (Single Module)](#2-modular-monolith-single-module)
+    - [3. Microservices-First](#3-microservices-first)
+    - [4. Go Workspaces Modular Monolith with Bridge Modules (Recommended)](#4-go-workspaces-modular-monolith-with-bridge-modules-recommended)
+  - [The Recommended Pattern](#the-recommended-pattern)
+    - [Core Principles](#core-principles)
+    - [High-Level Architecture Diagram](#high-level-architecture-diagram)
+  - [Architecture Deep Dive](#architecture-deep-dive)
+    - [Complete Directory Structure](#complete-directory-structure)
+    - [Key Architectural Decisions](#key-architectural-decisions)
+  - [Bridge Module Pattern](#bridge-module-pattern)
+  - [Runtime Orchestration: The Supervisor Pattern](#runtime-orchestration-the-supervisor-pattern)
+    - [The Monolith Composition Root Managed by `errgroup`](#the-monolith-composition-root-managed-by-errgroup)
+      - [Handling Cross-Service Events](#handling-cross-service-events)
+    - [Lifecycle Visualization](#lifecycle-visualization)
+    - [Why "Shared Fate"?](#why-shared-fate)
+    - [Advanced Supervision](#advanced-supervision)
+      - [The Core Difference](#the-core-difference)
+      - [When to use `suture`](#when-to-use-suture)
+  - [DDD and Hexagonal Architecture](#ddd-and-hexagonal-architecture)
+    - [The Hexagon: Ports and Adapters](#the-hexagon-ports-and-adapters)
+    - [Domain Layer: Pure Business Logic](#domain-layer-pure-business-logic)
+    - [Application Layer: Use Cases and Orchestration](#application-layer-use-cases-and-orchestration)
+    - [Adapters Layer: I/O Boundaries](#adapters-layer-io-boundaries)
+      - [Example Inbound Adapter (HTTP)](#example-inbound-adapter-http)
+      - [Example Outbound Adapter (Repository)](#example-outbound-adapter-repository)
+    - [Clean Dependency Rule](#clean-dependency-rule)
+  - [Protobuf Contracts (optional)](#protobuf-contracts-optional)
+  - [Testing Strategy](#testing-strategy)
+  - [Operational Concerns](#operational-concerns)
+  - [Decision Criteria](#decision-criteria)
+    - [Use This Pattern When:](#use-this-pattern-when)
+    - [Don't Use This Pattern When:](#dont-use-this-pattern-when)
+    - [Comparison with Alternatives](#comparison-with-alternatives)
+  - [Migration Scenarios](#migration-scenarios)
+  - [Failure Modes](#failure-modes)
+  - [Conclusion](#conclusion)
+    - [Key Takeaways](#key-takeaways)
+    - [When This Pattern Shines](#when-this-pattern-shines)
+    - [Evolution Path](#evolution-path)
+    - [Final Recommendation](#final-recommendation)
+  - [References and Further Reading](#references-and-further-reading)
+    - [Go Workspaces](#go-workspaces)
+    - [Domain-Driven Design](#domain-driven-design)
+    - [Hexagonal Architecture](#hexagonal-architecture)
+    - [Protocol Buffers & Connect](#protocol-buffers--connect)
+    - [Testing](#testing)
+    - [Tools](#tools)
+
+<!-- markdown-toc end -->
+
+
 Before exploring the detailed white-paper, you can read [this 15 minutes blog post](https://blog.piprime.fr/en/innovative-go-modular-monolith-architecture/) that expose the key principles of this modular monolith architecture governed by a Go workspace.
 
 ## Introduction
