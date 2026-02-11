@@ -492,3 +492,44 @@ func (c *Client) GetAuthor(id string) (*domain.Author, error) {
 
 By keeping bridge modules truly dependency-free and logically pure, you achieve true module independence and avoid the coupling problems that plague shared-kernel architectures.
 
+### Deep Dive: Why This Complexity?
+
+A common critique of this pattern is: *"Why not just use a single `go.mod` with strict linting? It's simpler."*
+
+While a single module is simpler initially, the **Multiple Module (Workspace)** approach solves specific problems that linting cannot address.
+
+#### 1. The "Dependency Hell" Problem
+In Go, a single `go.mod` file resolves a **single dependency graph** for the entire project. This means every service in the monolith must share the exact same version of every library.
+
+**Scenario:**
+*   `Service A` relies on `aws-sdk-go` v1 (legacy).
+*   `Service B` wants to use an AI library that requires `aws-sdk-go` v2.
+
+**In a Single Module Monolith:**
+You are blocked. You cannot upgrade Service B without refactoring Service A. One service's technical debt holds back the entire platform.
+
+**In this Architecture:**
+*   `services/serviceA/go.mod` requires `aws-sdk-go v1`
+*   `services/serviceB/go.mod` requires `aws-sdk-go v2`
+
+Because they are separate modules, they have **Independent Dependency Graphs**. The Go compiler handles this perfectly. This is critical for teams of 5-20 developers where coordinating library upgrades across the entire system is costly.
+
+#### 2. Contract Sharing vs. Code Sharing
+Another critique is that Bridge modules create "Coupling." It is vital to distinguish between two types of coupling:
+
+*   **Implementation Coupling (Bad):** Sharing logic, validators, or database helpers. This makes services fragile; changing one breaks the other.
+*   **Contract Coupling (Necessary):** Sharing interfaces and DTOs.
+
+Services **must** share a contract to communicate (whether it's JSON schemas, gRPC Protobufs, or Go Interfaces).
+
+The Bridge Module is strictly **Contract Coupling**. It is the semantic equivalent of a shared `.proto` repository in gRPC, but for in-process Go communication. It contains **no logic**, only definitions.
+
+#### 3. The "Pure Bridge" Rule
+To ensure the Bridge remains a Contract and not a Shared Kernel, we enforce strict rules (via `arch-test`):
+
+1.  **No Internal Imports:** The Bridge cannot import `services/xxx/internal`.
+2.  **No Logic:** The implementation (`InprocServer`) lives inside the **Service**, not the Bridge.
+3.  **Dependency Inversion:** The Service imports the Bridge to implement the interface. The Bridge depends on nothing.
+
+This structure allows `Service A` to be extracted to a new repository by simply copying `services/serviceA` and `bridge/serviceA`, with zero entanglement with `Service B`.
+

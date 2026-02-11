@@ -302,6 +302,9 @@ We use the Supervisor Pattern (via errgroup) to manage this. This ensures a "Sha
 
 See the file: [example-composition-root-managed-by-errgroup.md](example-composition-root-managed-by-errgroup.md).
 
+#### Handling Cross-Service Events
+See the file [cross-service-events.md](cross-service-events.md).
+
 ### Lifecycle Visualization
 The following diagram illustrates how the errgroup acts as a safety net. Note how an error in authorsvc propagates to stop authsvc immediately.
 
