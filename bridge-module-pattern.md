@@ -3,8 +3,6 @@
 ## Table of Contents
 
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
-**Table of Contents**
-
 - [Bridge Module Pattern](#bridge-module-pattern)
   - [Table of Contents](#table-of-contents)
   - [Detailed Bridge Architecture](#detailed-bridge-architecture)
@@ -29,9 +27,8 @@
       - [Summary Comparison](#summary-comparison)
   - [Annexe: Why `/brigde/xxx` instead of `/service/api/xxx`](#annexe-why-brigdexxx-instead-of-serviceapixxx)
     - [Claude Code Response](#claude-code-response)
-    - [Gemini](#gemini)
-    - [GPT](#gpt)
-
+    - [Gemini Response](#gemini-response)
+    - [GPT Response](#gpt-response)
 <!-- markdown-toc end -->
 
 ## Detailed Bridge Architecture
@@ -648,7 +645,7 @@ At the question
 **Bottom line:**
 The `bridge/` directory exists primarily to prevent circular module dependencies (architectural necessity) and secondarily to improve developer experience (dev velocity). If you're certain you'll never have bi-directional service calls, you could use `services/api`, but you're betting against future complexity.
 
-### Gemini
+### Gemini Response
 
 **Here is the concise breakdown of why you should keep the bridge/ directory separate:**
 1. **The "Dependency Hell" Trap:**
@@ -661,7 +658,7 @@ The `bridge/` directory exists primarily to prevent circular module dependencies
    Co-locating the API erodes the physical boundary.
    It makes it significantly harder for tooling (like arch-test) to enforce that the public contract never imports internal implementation details.
 
-### GPT
+### GPT Response
 
 **It’s a reasonable simplification, but you lose two properties that made the original pattern strong.**
 
