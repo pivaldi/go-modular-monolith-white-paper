@@ -18,8 +18,8 @@
       - [1. The "Dependency Hell" Problem](#1-the-dependency-hell-problem)
       - [2. Contract Sharing vs. Code Sharing](#2-contract-sharing-vs-code-sharing)
       - [3. The "Pure Bridge" Rule](#3-the-pure-bridge-rule)
-    - [Architecture Advocacy: The Case for the Pure Bridge](#architecture-advocacy-the-case-for-the-pure-bridge)
-      - [1. The "Dependency Hell" Trap](#1-the-dependency-hell-trap)
+    - [Deep Dive: Why Not Co-locate the API?](#deep-dive-why-not-co-locate-the-api)
+      - [1. The "Dependency Hell" Trap (Source-Level Isolation)](#1-the-dependency-hell-trap-source-level-isolation)
       - [2. Prevention of Cyclic Dependencies](#2-prevention-of-cyclic-dependencies)
       - [3. Physical vs. Logical Boundaries](#3-physical-vs-logical-boundaries)
       - [Summary Comparison](#summary-comparison)
@@ -557,24 +557,27 @@ To ensure the Bridge remains a Contract and not a Shared Kernel, we enforce stri
 
 This structure allows `Service A` to be extracted to a new repository by simply copying `services/serviceA` and `bridge/serviceA`, with zero entanglement with `Service B`.
 
-### Architecture Advocacy: The Case for the Pure Bridge
+### Deep Dive: Why Not Co-locate the API?
 
-A common question is: *"Why not just put the API inside the service repository (e.g., `services/authorsvc/api`)? Why do we need a separate `bridge/` directory?"*
+A frequent question from developers is: *"Why not just place the API package inside the service module (e.g., `services/authorsvc/api`)? Why do we need a separate `bridge/` directory?"*
 
-While co-locating the API seems simpler, placing the API inside the service module introduces severe architectural flaws in a Go environment.
+While co-locating the API appears simpler initially, it introduces severe architectural coupling in a Go environment.
 
-#### 1. The "Dependency Hell" Trap
-If you place the API package inside the `authorsvc` module, it shares the `go.mod` of the service.
+#### 1. The "Dependency Hell" Trap (Source-Level Isolation)
+If you place the API package inside `authorsvc/api`, it shares the `go.mod` of the service.
 
 **The Consequence:**
 Any consumer (e.g., `AuthService`) that imports `authorsvc/api` must add a `require` for the **entire** `authorsvc` module.
 
 *   **Inherited Dependencies:** `AuthService` implicitly inherits **ALL** of `AuthorService`'s dependencies (AWS SDKs, Database drivers, logging libs), even if it only needs a struct definition.
-*   **Version Conflicts:** If `AuthorService` uses `pgx v4` and `AuthService` needs `pgx v5`, the build breaks. You lose the "Independent Dependency Graph" benefit.
+*   **Development Friction:** Running `go test ./...` in `AuthService` forces the download and compilation of `AuthorService`'s heavy dependency tree.
+*   **Version Conflicts:** If `AuthorService` relies on a legacy version of a library and `AuthService` needs a modern version, you are blocked.
 
 **With a Bridge Module:**
 *   `bridge/authorsvc` has a separate `go.mod` with **ZERO** dependencies.
-*   `AuthService` imports `bridge/authorsvc` and inherits nothing. It remains perfectly isolated.
+*   `AuthService` imports `bridge/authorsvc` and inherits nothing.
+
+*Note: While the final binary (`main.go`) will eventually merge all dependencies, the Bridge ensures **Source-Level Isolation**. This protects the development lifecycle, accelerates CI, and enables independent major version upgrades.*
 
 #### 2. Prevention of Cyclic Dependencies
 In complex systems, services often need to reference each other bi-directionally (e.g., *Orders* needs *Users* for addresses; *Users* needs *Orders* for history).
@@ -592,7 +595,7 @@ In complex systems, services often need to reference each other bi-directionally
 #### 3. Physical vs. Logical Boundaries
 Moving the API into the service folder erodes the physical boundary that tooling can enforce.
 
-*   **Current Architecture:** `arch-test` enforces that `bridge/` cannot import `internal/`. This is easy to check because they are different root directories.
+*   **Current Architecture:** `arch-test` enforces that `bridge/` cannot import `internal/`. This is robust because they are different root directories.
 *   **Co-located Approach:** If the API is in `services/authorsvc/api`, developers are frequently tempted to move "helper" structs from `internal/` to `api/` for convenience, re-introducing coupling.
 
 #### Summary Comparison
@@ -605,3 +608,62 @@ Moving the API into the service folder erodes the physical boundary that tooling
 | **Clarity** | **Low:** Mixes Public Contract with Private Implementation. | **High:** Explicit separation of "What I do" vs "How I do it". |
 
 **Conclusion:** Keep the API in the separate `bridge/` module. It is the only way to guarantee the **Independent Dependency Graphs** that make this architecture scalable.
+
+## Annexe: Why `/brigde/xxx` instead of `/service/api/xxx`
+
+This has been a long debate within our technical team, This was a long debate within our technical team. So I report here I choosen to keep the `/bridge` design.
+
+At the question
+> I would like to remove /brigde and move the content in the related service/api. What do think about this design. Be conscise
+
+### Claude Code Response
+
+**Don't do it. Here's why:**
+
+**Fatal flaw: Circular dependencies**
+- If Orders needs Users and Users needs Orders, services/orders/api ↔ services/users/api creates a Go module cycle
+- Your build literally breaks - Go doesn't allow this
+- Bridge modules break the cycle because they're independent leaves
+
+**Real cost: Source-level pollution**
+- Importing services/authorsvc/api forces importing authorsvc's entire go.mod (pgx, AWS SDK, kafka-go, etc.)
+- go test in one service downloads dependencies from all services it talks to
+- CI becomes slower, local iteration becomes slower
+
+**When services/api works:**
+- Single-direction dependencies only (no cycles)
+- Small number of services (2-3)
+- Willing to accept slower tests/builds
+
+**Bottom line:**
+The `bridge/` directory exists primarily to prevent circular module dependencies (architectural necessity) and secondarily to improve developer experience (dev velocity). If you're certain you'll never have bi-directional service calls, you could use `services/api`, but you're betting against future complexity.
+
+# Gemini
+
+**Here is the concise breakdown of why you should keep the bridge/ directory separate:**
+1. **The "Dependency Hell" Trap:**
+   If `AuthService` imports `authorsvc/api`, it must require the entire `authorsvc` module. `AuthService` will implicitly inherit all of `AuthorService`'s dependencies (database drivers, AWS SDKs), even if it only needs a struct definition.
+   The separate bridge module prevents this by having zero dependencies.
+2. **Circular Dependencies:**
+   In a monolith, services often need to talk bi-directionally (A calls B, B calls A). If the API is inside the service module, this creates a Go Module Cycle, which the compiler forbids.
+   Separate bridge modules act as independent leaves in the graph, structurally preventing cycles.
+3. **Physical Boundary Enforcement:** 
+   Co-locating the API erodes the physical boundary.
+   It makes it significantly harder for tooling (like arch-test) to enforce that the public contract never imports internal implementation details.
+
+# GPT
+
+**It’s a reasonable simplification, but you lose two properties that made the original pattern strong.**
+
+**Pros**
+* Simpler repo: no extra module/package to explain.
+* In-proc calls are straightforward (import `serviceB/api`, DI it).
+* Fewer moving parts early.
+
+**Cons / risks**
+* **Harder extraction later**: `serviceB/api` lives inside the `serviceB` module/repo. If you split repos/modules, every consumer must change imports and you often end up re-creating a shared “contracts” repo anyway.
+* **Dependency leakage**: it becomes tempting for `serviceB/api` to pull in “just one helper” (logging, errors, DB types). Then consumers inherit serviceB’s dependency graph and coupling creeps back.
+* **Weaker boundary semantics**: “API = public surface” + “service internals” live together; governance is harder than a dedicated bridge/contracts module.
+
+Net: good for early speed; **for long-term independence/migration, a separate bridge/contracts module remains cleaner.**
+

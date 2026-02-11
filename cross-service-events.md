@@ -79,7 +79,7 @@ func main() {
 
 ## Anti-Pattern Warning
 
-**❌ Don't put the Publisher interface in the Bridge.**
+** ✗ Don't put the Publisher interface in the Bridge.**
 
 ```go
 // BAD: bridge/authorsvc/api.go
