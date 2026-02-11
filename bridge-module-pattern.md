@@ -533,3 +533,51 @@ To ensure the Bridge remains a Contract and not a Shared Kernel, we enforce stri
 
 This structure allows `Service A` to be extracted to a new repository by simply copying `services/serviceA` and `bridge/serviceA`, with zero entanglement with `Service B`.
 
+### Architecture Advocacy: The Case for the Pure Bridge
+
+A common question is: *"Why not just put the API inside the service repository (e.g., `services/authorsvc/api`)? Why do we need a separate `bridge/` directory?"*
+
+While co-locating the API seems simpler, placing the API inside the service module introduces severe architectural flaws in a Go environment.
+
+#### 1. The "Dependency Hell" Trap
+If you place the API package inside the `authorsvc` module, it shares the `go.mod` of the service.
+
+**The Consequence:**
+Any consumer (e.g., `AuthService`) that imports `authorsvc/api` must add a `require` for the **entire** `authorsvc` module.
+
+*   **Inherited Dependencies:** `AuthService` implicitly inherits **ALL** of `AuthorService`'s dependencies (AWS SDKs, Database drivers, logging libs), even if it only needs a struct definition.
+*   **Version Conflicts:** If `AuthorService` uses `pgx v4` and `AuthService` needs `pgx v5`, the build breaks. You lose the "Independent Dependency Graph" benefit.
+
+**With a Bridge Module:**
+*   `bridge/authorsvc` has a separate `go.mod` with **ZERO** dependencies.
+*   `AuthService` imports `bridge/authorsvc` and inherits nothing. It remains perfectly isolated.
+
+#### 2. Prevention of Cyclic Dependencies
+In complex systems, services often need to reference each other bi-directionally (e.g., *Orders* needs *Users* for addresses; *Users* needs *Orders* for history).
+
+**If using `services/xxx/api`:**
+*   Service A imports Service B's API.
+*   Service B imports Service A's API.
+*   **Result:** Go Module Cycle Error. Go does not allow cyclic module dependencies. You are structurally blocked.
+
+**With Bridge Modules:**
+*   Service A imports `bridge/ServiceB`.
+*   Service B imports `bridge/ServiceA`.
+*   **Result:** No cycle. The bridges are independent leaves in the dependency tree.
+
+#### 3. Physical vs. Logical Boundaries
+Moving the API into the service folder erodes the physical boundary that tooling can enforce.
+
+*   **Current Architecture:** `arch-test` enforces that `bridge/` cannot import `internal/`. This is easy to check because they are different root directories.
+*   **Co-located Approach:** If the API is in `services/authorsvc/api`, developers are frequently tempted to move "helper" structs from `internal/` to `api/` for convenience, re-introducing coupling.
+
+#### Summary Comparison
+
+| Feature | Co-located API (`services/api`) | Bridge Module (`bridge/`) |
+| :--- | :--- | :--- |
+| **Dependency Graph** | **Coupled:** Consumer inherits Provider's entire `go.mod`. | **Decoupled:** Consumer inherits 0 dependencies. |
+| **Bi-directional calls** | **Impossible:** Causes module cycles. | **Possible:** Bridges break the cycle. |
+| **Migration** | **Hard:** Extracting the service means extracting the API consumers depend on. | **Easy:** The API (Bridge) is already separate. |
+| **Clarity** | **Low:** Mixes Public Contract with Private Implementation. | **High:** Explicit separation of "What I do" vs "How I do it". |
+
+**Conclusion:** Keep the API in the separate `bridge/` module. It is the only way to guarantee the **Independent Dependency Graphs** that make this architecture scalable.
