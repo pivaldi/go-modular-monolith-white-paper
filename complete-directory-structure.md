@@ -69,9 +69,8 @@ service-manager/
 │   │   │           # - In prod: uses authorconnect.Client
 │   │   │
 │   │   ├── test/             # Service-level tests
-│   │   │   └── contract/     # CONTRACT TESTS (service boundaries)
-│   │   │       ├── author_bridge_test.go
-│   │   │       └── http_api_test.go
+│   │   │   └── contract/     # CONTRACT TESTS (verify authsvc's own API contracts)
+│   │   │       └── http_api_test.go  # Tests authsvc HTTP responses match spec
 │   │   │
 │   │   └── internal/         # PRIVATE - cannot be imported by other services
 │   │       │
@@ -209,8 +208,9 @@ service-manager/
 │       │   └── main.go       # Wires bridge.InprocServer to internal/application
 │       │
 │       ├── test/             # Service-level tests
-│       │   └── contract/     # CONTRACT TESTS (service boundaries)
-│       │       └── bridge_test.go
+│       │   └── contract/     # CONTRACT TESTS (verify authorsvc implements bridge correctly)
+│       │       ├── bridge_test.go         # Tests InprocServer implements bridge.AuthorService
+│       │       └── http_api_test.go       # Tests HTTP API matches spec
 │       │
 │       └── internal/
 │           ├── domain/       # UNIT TESTS (co-located *_test.go)
@@ -292,7 +292,9 @@ service-manager/
 
 - **Unit Tests**: Co-located in `services/*/internal/domain/**/*_test.go` and `services/*/internal/application/**/*_test.go`
 - **Integration Tests**: Co-located in `services/*/internal/adapters/**/*_test.go` (with real infrastructure)
-- **Contract Tests**: Per-service in `services/*/test/contract/` (verify service boundaries)
+- **Contract Tests**: Per-service in `services/*/test/contract/` (each service tests its OWN API contracts - bridge implementation, HTTP responses, etc.)
 - **E2E Tests**: Root-level `test/e2e/` (complete user journeys across all services)
+
+**Important:** Contract tests live in the **PROVIDER** service, not the consumer. Example: `services/authorsvc/test/contract/bridge_test.go` verifies that authorsvc correctly implements `bridge/authorsvc.AuthorService`. The consumer (authsvc) never imports the provider's implementation.
 
 See [testing-strategy.md](testing-strategy.md) for detailed testing guidance.
