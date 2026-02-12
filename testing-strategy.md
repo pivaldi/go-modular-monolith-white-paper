@@ -118,33 +118,46 @@ func TestUserRepository_Save(t *testing.T) {
 
 ## 4. Contract Tests (Bridge/Service Boundaries)
 
-**Focus:** Service-to-service communication
+**Focus:** Verify that a service correctly implements its own public API contract
+
+**Important:** Contract tests live in the **PROVIDER** service, not the consumer. Each service tests its own implementation of its bridge interface.
 
 ```go
-// services/authsvc/test/contract/author_bridge_test.go
-func TestAuthorBridge_InProcess(t *testing.T) {
-    // Start authorsvc with test data
-    authorServer := startTestAuthorService(t)
-    defer authorServer.Stop()
+// services/authorsvc/test/contract/bridge_test.go
+func TestAuthorService_BridgeContract(t *testing.T) {
+    // Setup: Initialize authorsvc with test data
+    // This is authorsvc testing its OWN implementation
+    app := setupTestAuthorService(t)
+    defer app.Cleanup()
 
-    // Create bridge client
-    bridge := authorsvc.NewInprocClient(authorServer)
+    // Create InprocServer (the bridge implementation authorsvc provides)
+    server := inbound_bridge.NewInprocServer(
+        app.GetAuthorQuery,
+        app.CreateAuthorCommand,
+        // ... other dependencies
+    )
 
-    // Test contract
-    author, err := bridge.GetAuthor(context.Background(), "test-author-123")
+    // Test that it correctly implements bridge.AuthorService interface
+    author, err := server.GetAuthor(context.Background(), "test-author-123")
     require.NoError(t, err)
     assert.Equal(t, "Test Author", author.Name)
 
-    // Test error handling
-    _, err = bridge.GetAuthor(context.Background(), "nonexistent")
-    assert.ErrorIs(t, err, authorsvc.ErrAuthorNotFound)
+    // Test error contract
+    _, err = server.GetAuthor(context.Background(), "nonexistent")
+    assert.ErrorIs(t, err, bridge_authorsvc.ErrAuthorNotFound)
+
+    // Test DTO mapping (domain entity → bridge DTO)
+    assert.NotEmpty(t, author.ID)
+    assert.NotEmpty(t, author.CreatedAt)
 }
 ```
 
 **Characteristics:**
-- Tests service boundaries
-- Tests both in-process and network transports
-- Validates error handling across services
+- Tests that the service correctly implements its bridge interface
+- Validates DTO mapping (domain entities → bridge DTOs)
+- Validates error translation (domain errors → bridge errors)
+- Lives in the PROVIDER service, never in the consumer
+- Consumer never imports provider's implementation
 
 ## 5. End-to-End Tests
 
