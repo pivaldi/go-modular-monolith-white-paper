@@ -1,4 +1,4 @@
-# Go Modular Monolith: Architecture White Paper
+# Go Workspaces Modular Monolith with "Pure" Bridge Modules
 
 **A Modular monolith pattern for building maintainable Go systems using workspaces with clear boundaries and flexible distribution.**
 
