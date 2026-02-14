@@ -26,9 +26,6 @@
       - [3. Physical vs. Logical Boundaries](#3-physical-vs-logical-boundaries)
       - [Summary Comparison](#summary-comparison)
   - [Annexe: Why `/brigde/xxx` instead of `/service/api/xxx`?](#annexe-why-brigdexxx-instead-of-serviceapixxx)
-    - [Claude Code Response](#claude-code-response)
-    - [Gemini Response](#gemini-response)
-    - [GPT Response](#gpt-response)
 <!-- markdown-toc end -->
 
 ## Detailed Bridge Architecture
