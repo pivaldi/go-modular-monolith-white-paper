@@ -618,59 +618,39 @@ Moving the API into the service folder erodes the physical boundary that tooling
 
 ## Annexe: Why `/brigde/xxx` instead of `/service/api/xxx`?
 
-This has been a long debate within our technical team. So I report here I choosen to keep the `/bridge` design.
+This has been a long debate within our technical team…
 
 At the question
-> I would like to remove /brigde and move the content in the related service/api. What do think about this design. Be conscise
+> I would like to remove /brigde and move the content in the related service/api.
 
-### Claude Code Response
+The answer is clear, **DON'T DO IT**. Here's why:
 
-**Don't do it. Here's why:**
+- **Compile-Time Dependencies VS Runtime Dependencies**
+  - Importing `serviceA/api` into `serviceB` only gives `serviceB` access to the **Type Definitions (interfaces and DTOs)**. **It does not give `serviceB` a running instance of `serviceA`**.
+  - If `serviceB`'s try to import `serviceA/api` and expect it to "just work," they will fail because the implementation behind the interface is missing, it's nil or non-existent.
+  - If `serviceB` instantiates the real `serviceA`, `serviceB` would need to know how to configure `serviceA` (DB passwords, AWS keys, etc.).  
+    This breaks encapsulation and **Violates the Boundaries**.
+  - The "Pure Bridge" architecture solves this by enforcing **Dependency Inversion**.
+- **Fatal flaw: Circular dependencies**
+  - If Orders needs Users and Users needs Orders, `serviceA/api` ↔ `serviceA/api` creates a Go module cycle
+  - Your build literally breaks - Go doesn't allow this
+  - Bridge modules break the cycle because they're independent leaves
+- **Real cost: Source-level pollution and "Dependency Hell" Trap**
+  - Importing `serviceA/api` forces importing `serviceA`'s entire `go.mod` (pgx, AWS SDK, kafka-go, etc.)
+  - go test in one service downloads dependencies from all services it talks to
+  - CI becomes slower, local iteration becomes slower
+  - Bridge design pattern solves this problem enforcing a dedicated layer `tests/e2e` for the tests and `cmd/monolith` as a bootstrap services' orchestrator, NOT inside `serviceB`'s codebase
+- **When `services/api` works:**
+  - Single-direction dependencies only (no cycles)
+  - Small number of services (2-3)
+  - Willing to accept slower tests/builds
+  - The "Pure Bridge" architecture solves this by exposing only interfaces and DTOs without any services' dependencies.
+- **Physical Boundary Enforcement:**
+  - Co-locating the API erodes the physical boundary.
+  - It makes it significantly harder for tooling (like arch-test) to enforce that the public contract never imports internal implementation details.
+- **Harder extraction later**: if `serviceB/api` lives inside the `serviceB` module, when distribuing a module, every consumer of this module must change imports and you often end up re-creating a shared “contracts” repo anyway.
+- **Dependency leakage**: it becomes tempting for `serviceB/api` to pull in “just one helper” (logging, errors, DB types). Then consumers inherit `serviceB`’s dependency graph and coupling creeps back.
+- **Weaker boundary semantics**: “API = public surface” + “service internals” live together; governance is harder than a dedicated bridge/contracts module.
 
-**Fatal flaw: Circular dependencies**
-- If Orders needs Users and Users needs Orders, `services/orders/api` ↔ `services/users/api` creates a Go module cycle
-- Your build literally breaks - Go doesn't allow this
-- Bridge modules break the cycle because they're independent leaves
-
-**Real cost: Source-level pollution**
-- Importing `services/authorsvc/api` forces importing `authorsvc`'s entire go.mod (pgx, AWS SDK, kafka-go, etc.)
-- go test in one service downloads dependencies from all services it talks to
-- CI becomes slower, local iteration becomes slower
-
-**When `services/api` works:**
-- Single-direction dependencies only (no cycles)
-- Small number of services (2-3)
-- Willing to accept slower tests/builds
-
-**Bottom line:**
-The `bridge/` directory exists primarily to prevent circular module dependencies (architectural necessity) and secondarily to improve developer experience (dev velocity). If you're certain you'll never have bi-directional service calls, you could use `services/api`, but you're betting against future complexity.
-
-### Gemini Response
-
-**Here is the concise breakdown of why you should keep the `bridge/` directory separate:**
-1. **The "Dependency Hell" Trap:**
-   If `AuthService` imports `authorsvc/api`, it must require the entire `authorsvc` module. `AuthService` will implicitly inherit all of `AuthorService`'s dependencies (database drivers, AWS SDKs), even if it only needs a struct definition.
-   The separate bridge module prevents this by having zero dependencies.
-2. **Circular Dependencies:**
-   In a monolith, services often need to talk bi-directionally (A calls B, B calls A). If the API is inside the service module, this creates a Go Module Cycle, which the compiler forbids.
-   Separate bridge modules act as independent leaves in the graph, structurally preventing cycles.
-3. **Physical Boundary Enforcement:**
-   Co-locating the API erodes the physical boundary.
-   It makes it significantly harder for tooling (like arch-test) to enforce that the public contract never imports internal implementation details.
-
-### GPT Response
-
-**It’s a reasonable simplification, but you lose two properties that made the original pattern strong.**
-
-**Pros**
-* Simpler repo: no extra module/package to explain.
-* In-proc calls are straightforward (import `serviceB/api`, DI it).
-* Fewer moving parts early.
-
-**Cons / risks**
-* **Harder extraction later**: `serviceB/api` lives inside the `serviceB` module/repo. If you split repos/modules, every consumer must change imports and you often end up re-creating a shared “contracts” repo anyway.
-* **Dependency leakage**: it becomes tempting for `serviceB/api` to pull in “just one helper” (logging, errors, DB types). Then consumers inherit serviceB’s dependency graph and coupling creeps back.
-* **Weaker boundary semantics**: “API = public surface” + “service internals” live together; governance is harder than a dedicated bridge/contracts module.
-
-Net: good for early speed; **for long-term independence/migration, a separate bridge/contracts module remains cleaner.**
-
+Importing the API is necessary for the **code to compile**, but **it is insufficient for the code to run**.  
+Expecting `serviceB` to bootstrap `serviceA` for is an architectural anti-pattern that leads to **tight coupling** and the "Dependency Hell" that the "pure bridge" architecture solves elegantly.
