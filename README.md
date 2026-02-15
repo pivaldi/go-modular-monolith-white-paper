@@ -224,7 +224,8 @@ Before presenting the recommended pattern, let's compare common architectural ap
 
 **1. Go Workspaces for Module Coordination**
 
-Use `go.work` to coordinate multiple independent Go modules in a single repository:
+Use `go.work` to coordinate multiple independent Go modules in a single
+repository:
 - Each service is its own module with its own `go.mod`
 - Workspace makes cross-module development seamless
 - Compiler enforces module boundaries
@@ -690,6 +691,10 @@ If you're building a Go system with:
 ### Go Workspaces
 - [Go Workspace Tutorial](https://go.dev/doc/tutorial/workspaces)
 - [Go Modules Reference](https://go.dev/ref/mod)
+
+### Project Layout
+- [Standard Go Project Layout](https://github.com/golang-standards/project-layout)
+- [Go DDD example application](https://github.com/ThreeDotsLabs/wild-workouts-go-ddd-example): Complete project to show how to apply DDD, Clean Architecture, and CQRS by practical refactoring.
 
 ### Domain-Driven Design
 - *Domain-Driven Design* by Eric Evans

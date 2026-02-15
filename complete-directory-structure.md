@@ -7,24 +7,38 @@ service-manager/
 │
 ├── mise.toml                  # Root orchestration tasks
 │
-├── buf.yaml                   # Buf workspace config (optional)
-├── buf.gen.yaml               # Protobuf code generation (optional)
+├── buf.yaml                   # Buf workspace config (lint/breaking rules across all modules)
 │
 ├── contracts/                # Protobuf definitions (OPTIONAL - for network transport)
-│   ├── go.mod                # Module: contracts v1.0.0
+│   ├── go.mod                # Module: github.com/example/service-manager/contracts
+│   ├── buf.gen.yaml          # Code generation config (run `buf generate` from here)
 │   ├── README.md             # Contract versioning strategy
 │   │
-│   ├── auth/v1/
-│   │   ├── auth.proto        # AuthService definition
-│   │   ├── auth.pb.go        # Generated protobuf types
-│   │   └── authconnect/
-│   │       └── auth.connect.go # Generated Connect stubs
+│   ├── proto/                # CLEAN: Schemas only (no generated code)
+│   │   ├── buf.yaml          # Buf module config (marks this as the proto root)
+│   │   ├── auth/v1/
+│   │   │   └── auth.proto        # AuthService definition
+│   │   └── author/v1/
+│   │       └── author.proto      # AuthorService definition
 │   │
-│   └── author/v1/
-│       ├── author.proto      # AuthorService definition
-│       ├── author.pb.go      # Generated
-│       └── authorconnect/
-│           └── author.connect.go # Generated
+│   ├── go/                   # DIRTY: Generated Go code (do not edit manually)
+│   │   ├── auth/v1/
+│   │   │   ├── auth.pb.go        # Generated protobuf types
+│   │   │   └── authconnect/
+│   │   │       └── auth.connect.go # Generated Connect stubs
+│   │   └── author/v1/
+│   │       ├── author.pb.go      # Generated
+│   │       └── authorconnect/
+│   │           └── author.connect.go # Generated
+│   │
+│   └── ts/                   # DIRTY: Generated TypeScript code (do not edit manually)
+│       ├── package.json      # npm package: @example/contracts
+│       ├── auth/v1/
+│       │   ├── auth_pb.ts        # Generated protobuf types
+│       │   └── auth_connect.ts   # Generated Connect stubs
+│       └── author/v1/
+│           ├── author_pb.ts      # Generated
+│           └── author_connect.ts # Generated
 │
 ├── bridge/                    # Bridge modules (public service APIs)
 │   │

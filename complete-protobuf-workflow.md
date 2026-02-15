@@ -4,14 +4,14 @@ When you're ready to add network transport, follow this workflow.
 
 ## 1. Define Service Contract
 
-**File: `contracts/author/v1/author.proto`**
+**File: `contracts/proto/author/v1/author.proto`**
 
 ```protobuf
 syntax = "proto3";
 
 package author.v1;
 
-option go_package = "github.com/example/service-manager/contracts/author/v1;authorv1";
+option go_package = "github.com/example/service-manager/contracts/go/author/v1;authorv1";
 
 service AuthorService {
   rpc GetAuthor(GetAuthorRequest) returns (GetAuthorResponse) {}
@@ -48,13 +48,19 @@ message CreateAuthorResponse {
 
 ## 2. Generate Code
 
+`buf.gen.yaml` lives in `contracts/` (not the repo root). Run generation from there:
+
 ```bash
-# Using buf
+cd contracts
 buf generate
 
-# Generated files:
-# - contracts/author/v1/author.pb.go (protobuf types)
-# - contracts/author/v1/authorconnect/author.connect.go (Connect stubs)
+# Generated files (Go):
+# - go/author/v1/author.pb.go
+# - go/author/v1/authorconnect/author.connect.go
+
+# Generated files (TypeScript, if ts plugins are configured):
+# - ts/author/v1/author_pb.ts
+# - ts/author/v1/author_connect.ts
 ```
 
 ## 3. Implement Connect Handler (Inbound Adapter)
@@ -67,8 +73,8 @@ import (
     "context"
     "connectrpc.com/connect"
 
-    authorv1 "github.com/example/service-manager/contracts/author/v1"
-    "github.com/example/service-manager/contracts/author/v1/authorconnect"
+    authorv1 "github.com/example/service-manager/contracts/go/author/v1"
+    "github.com/example/service-manager/contracts/go/author/v1/authorconnect"
     "github.com/example/service-manager/services/authorsvc/internal/application/command"
     "github.com/example/service-manager/services/authorsvc/internal/application/query"
 )
@@ -128,8 +134,8 @@ import (
     "net/http"
 
     "connectrpc.com/connect"
-    authorv1 "github.com/example/service-manager/contracts/author/v1"
-    "github.com/example/service-manager/contracts/author/v1/authorconnect"
+    authorv1 "github.com/example/service-manager/contracts/go/author/v1"
+    "github.com/example/service-manager/contracts/go/author/v1/authorconnect"
     "github.com/example/service-manager/services/authsvc/internal/application/ports"
 )
 

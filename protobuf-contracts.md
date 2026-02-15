@@ -32,7 +32,7 @@ type AuthorDTO struct {
 
 ```go
 // bridge/authorsvc/dto.go
-import authorv1 "github.com/example/service-manager/contracts/author/v1"
+import authorv1 "github.com/example/service-manager/contracts/go/author/v1"
 
 // Use protobuf-generated types
 type AuthorDTO = authorv1.Author
@@ -253,6 +253,125 @@ author_service_url: "https://author-service.internal:8080"
 - Geographic distribution
 - Polyglot consumers (other languages)
 
+## Contracts Module Layout
+
+The `contracts` module uses a single `go.mod` but separates schemas from generated artifacts into language-specific subdirectories:
+
+```
+contracts/                  # One Go module (go.mod here)
+├── buf.gen.yaml            # Generation config — run `buf generate` from here
+├── proto/                  # CLEAN: .proto schemas only
+│   ├── buf.yaml            # Buf module config (proto root)
+│   └── author/v1/
+│       └── author.proto
+├── go/                     # DIRTY: generated Go code (do not edit)
+│   └── author/v1/
+│       ├── author.pb.go
+│       └── authorconnect/
+│           └── author.connect.go
+└── ts/                     # DIRTY: generated TypeScript code (do not edit)
+    ├── package.json        # npm package: @example/contracts
+    └── author/v1/
+        ├── author_pb.ts
+        └── author_connect.ts
+```
+
+**Why one module, not two:**
+
+- **Atomic versioning**: the schema and its generated code are tagged together. You cannot accidentally have `v1.0` of the proto but `v0.9` of the generated stubs.
+- **Clear imports**: `import "…/contracts/go/author/v1"` is unambiguous — it explicitly names the language artifact. Generic names like `gen/` give no signal.
+- **No pollution**: `.proto` files live in `contracts/proto`, untouched by generated clutter.
+- **Simple workspace**: one entry in `go.work` instead of two synchronized modules.
+
+### buf.gen.yaml placement
+
+`buf.gen.yaml` lives inside `contracts/` (not at the repo root). You run `buf generate` from the `contracts/` directory. All `out:` paths are relative to that location.
+
+The repo-root `buf.yaml` is a *workspace* config used only for lint and breaking-change detection across all buf modules in CI — it does not drive generation.
+
+**`buf.yaml` — repo root (workspace config)**
+
+Declares which buf modules exist in the repo. Used by `buf lint` and `buf breaking` in CI.
+
+```yaml
+# buf.yaml  (repo root)
+version: v2
+modules:
+  - path: contracts/proto   # the only proto module in this repo
+```
+
+**`buf.yaml` — `contracts/proto/` (module config)**
+
+Marks `contracts/proto/` as a self-contained buf module and defines its lint and breaking-change rules.
+
+```yaml
+# contracts/proto/buf.yaml
+version: v2
+lint:
+  use:
+    - STANDARD              # enforce standard proto style rules
+  except:
+    - PACKAGE_VERSION_SUFFIX # allow packages without _v1 suffix if preferred
+breaking:
+  use:
+    - FILE                  # detect field removal, type changes, etc.
+```
+
+```yaml
+# contracts/buf.gen.yaml
+version: v2
+inputs:
+  - directory: proto          # contracts/proto/ is the buf module
+plugins:
+  # Go: protobuf types
+  - plugin: buf.build/protocolbuffers/go
+    out: go                   # → contracts/go/
+    opt: paths=source_relative
+  # Go: Connect RPC stubs
+  - plugin: buf.build/connectrpc/go
+    out: go                   # → contracts/go/
+    opt: paths=source_relative
+  # TypeScript: protobuf types (Protobuf-ES)
+  - plugin: buf.build/bufbuild/es
+    out: ts                   # → contracts/ts/
+    opt: target=ts
+  # TypeScript: Connect RPC stubs
+  - plugin: buf.build/connectrpc/es
+    out: ts                   # → contracts/ts/
+    opt: target=ts
+```
+
+Run generation:
+
+```bash
+cd contracts
+buf generate
+```
+
+### TypeScript package
+
+The generated TypeScript lives in `contracts/ts/` with its own `package.json`, making it an independently publishable npm package:
+
+```json
+{
+  "name": "@example/contracts",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./author/v1": "./author/v1/author_pb.ts"
+  }
+}
+```
+
+Frontend or Node services import from the same versioned contract:
+
+```typescript
+import { Author, GetAuthorRequest } from "@example/contracts/author/v1";
+import { AuthorService } from "@example/contracts/author/v1/author_connect";
+```
+
+The Go and TypeScript artifacts are generated from the same `.proto` source in the same `buf generate` run, so they are always in sync.
+
 ## Complete Protobuf Workflow
 
 See the file [complete-protobuf-workflow.md](complete-protobuf-workflow.md).
@@ -274,11 +393,12 @@ message Author {
 
 ```
 contracts/
-└── author/
-    ├── v1/
-    │   └── author.proto    # Existing
-    └── v2/
-        └── author.proto    # Breaking changes
+└── proto/
+    └── author/
+        ├── v1/
+        │   └── author.proto    # Existing
+        └── v2/
+            └── author.proto    # Breaking changes
 ```
 
 **Check for breaking changes in CI:**
