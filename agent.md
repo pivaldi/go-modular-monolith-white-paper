@@ -250,6 +250,28 @@ Example: `services/serviceasvc/test/contract/bridge_test.go` verifies serviceasv
 
 ### Generation workflow:
 
+```yaml
+# contracts/buf.gen.yaml example
+version: v2
+inputs:
+  - directory: proto
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: go
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: go
+    opt: paths=source_relative
+  - remote: buf.build/bufbuild/es
+    out: ts
+    opt: target=ts
+  - remote: buf.build/connectrpc/es
+    out: ts
+    opt: target=ts
+```
+
+Run generation:
+
 ```bash
 cd contracts
 buf generate

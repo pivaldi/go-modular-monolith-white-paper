@@ -283,11 +283,24 @@ contracts/                  # One Go module (go.mod here)
 - **No pollution**: `.proto` files live in `contracts/proto`, untouched by generated clutter.
 - **Simple workspace**: one entry in `go.work` instead of two synchronized modules.
 
-### buf.gen.yaml placement
+### Buf Configuration Files
 
-`buf.gen.yaml` lives inside `contracts/` (not at the repo root). You run `buf generate` from the `contracts/` directory. All `out:` paths are relative to that location.
+**This guide uses Buf v2 syntax.** Key difference from v1: use `remote:` (not `plugin:`) for BSR-hosted plugins in `buf.gen.yaml`.
 
-The repo-root `buf.yaml` is a *workspace* config used only for lint and breaking-change detection across all buf modules in CI — it does not drive generation.
+This architecture uses three separate buf configuration files:
+
+| File | Location | Purpose | Used by |
+|------|----------|---------|---------|
+| `buf.yaml` | Repo root | Workspace config | `buf lint`, `buf breaking` (CI) |
+| `buf.yaml` | `contracts/proto/` | Module config | `buf generate`, `buf lint` |
+| `buf.gen.yaml` | `contracts/` | Code generation | `buf generate` |
+
+**Key Points:**
+
+- `buf.gen.yaml` lives inside `contracts/` (not at the repo root)
+- Run `buf generate` from the `contracts/` directory
+- All `out:` paths in `buf.gen.yaml` are relative to `contracts/`
+- The repo-root `buf.yaml` does NOT drive generation — it only enables workspace-wide lint/breaking checks in CI
 
 **`buf.yaml` — repo root (workspace config)**
 
@@ -317,6 +330,12 @@ breaking:
     - FILE                  # detect field removal, type changes, etc.
 ```
 
+**`buf.gen.yaml` — `contracts/buf.gen.yaml` (generation config)**
+
+Defines code generation plugins and their output directories.
+
+**IMPORTANT:** Buf v2 uses `remote:` for BSR-hosted plugins (not `plugin:` like v1).
+
 ```yaml
 # contracts/buf.gen.yaml
 version: v2
@@ -324,21 +343,40 @@ inputs:
   - directory: proto          # contracts/proto/ is the buf module
 plugins:
   # Go: protobuf types
-  - plugin: buf.build/protocolbuffers/go
-    out: go                   # → contracts/go/
+  - remote: buf.build/protocolbuffers/go    # 'remote:' for BSR plugins
+    out: go                                 # → contracts/go/
     opt: paths=source_relative
   # Go: Connect RPC stubs
-  - plugin: buf.build/connectrpc/go
-    out: go                   # → contracts/go/
+  - remote: buf.build/connectrpc/go
+    out: go                                 # → contracts/go/
     opt: paths=source_relative
   # TypeScript: protobuf types (Protobuf-ES)
-  - plugin: buf.build/bufbuild/es
-    out: ts                   # → contracts/ts/
+  - remote: buf.build/bufbuild/es
+    out: ts                                 # → contracts/ts/
     opt: target=ts
   # TypeScript: Connect RPC stubs
-  - plugin: buf.build/connectrpc/es
-    out: ts                   # → contracts/ts/
+  - remote: buf.build/connectrpc/es
+    out: ts                                 # → contracts/ts/
     opt: target=ts
+```
+
+**Plugin Options Explained:**
+
+- `paths=source_relative` (Go): Generates files relative to the `.proto` source location. Use this for mono-repo layouts.
+- `target=ts` (TypeScript): Generates TypeScript (vs `target=js` for JavaScript).
+
+**Local Plugins (alternative to BSR):**
+
+If you have locally installed protoc plugins, use `local:` instead:
+
+```yaml
+plugins:
+  - local: protoc-gen-go          # must be in $PATH
+    out: go
+    opt: paths=source_relative
+  - local: protoc-gen-connect-go
+    out: go
+    opt: paths=source_relative
 ```
 
 Run generation:
@@ -347,6 +385,12 @@ Run generation:
 cd contracts
 buf generate
 ```
+
+**Troubleshooting:**
+
+- `field plugin not found`: You're using buf v1 syntax (`plugin:`) instead of v2 syntax (`remote:` or `local:`)
+- `plugin not found in $PATH`: Install the plugin or use `remote:` to use BSR-hosted plugins
+- `module not found`: Ensure `contracts/proto/buf.yaml` exists
 
 ### TypeScript package
 
