@@ -419,8 +419,8 @@ func checkModuleDependencies() error {
     // - Circular module deps prevent independent evolution
     //
     // Example violation:
-    //   services/authsvc/go.mod: require bridge/authorsvc ✓ OK
-    //   bridge/authorsvc/go.mod: require services/authsvc ✗ CYCLE!
+    //   services/servicebsvc/go.mod: require bridge/serviceasvc ✓ OK
+    //   bridge/serviceasvc/go.mod: require services/servicebsvc ✗ CYCLE!
     for module := range graph {
         visited := make(map[string]bool)
         if hasCycle(module, graph, visited, make(map[string]bool)) {
@@ -555,12 +555,12 @@ Example CI failure message:
 ✗ Architecture validation failed
 
 Checking: service-isolation
-  ✗ FAILED: services/authsvc/internal/adapters/outbound/helper.go
-    imports services/authorsvc/internal/domain/author
+  ✗ FAILED: services/servicebsvc/internal/adapters/outbound/helper.go
+    imports services/serviceasvc/internal/domain/entitya
     (cross-service internal import)
 
-Fix: Remove direct import of authorsvc internals.
-      Use bridge/authorsvc instead.
+Fix: Remove direct import of serviceasvc internals.
+      Use bridge/serviceasvc instead.
 ```
 
 ## Additional Validation Rules

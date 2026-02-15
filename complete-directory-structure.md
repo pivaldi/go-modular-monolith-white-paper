@@ -3,7 +3,7 @@
 ```
 service-manager/
 ├── go.work                    # Go workspace definition
-│                              # use (./contracts ./bridge/authorsvc ./services/...)
+│                              # use (./contracts ./bridge/serviceasvc ./services/...)
 │
 ├── mise.toml                  # Root orchestration tasks
 │
@@ -16,75 +16,75 @@ service-manager/
 │   │
 │   ├── proto/                # CLEAN: Schemas only (no generated code)
 │   │   ├── buf.yaml          # Buf module config (marks this as the proto root)
-│   │   ├── auth/v1/
-│   │   │   └── auth.proto        # AuthService definition
-│   │   └── author/v1/
-│   │       └── author.proto      # AuthorService definition
+│   │   ├── serviceb/v1/
+│   │   │   └── serviceb.proto        # Service B definition
+│   │   └── servicea/v1/
+│   │       └── servicea.proto      # Service A definition
 │   │
 │   ├── go/                   # DIRTY: Generated Go code (do not edit manually)
-│   │   ├── auth/v1/
-│   │   │   ├── auth.pb.go        # Generated protobuf types
-│   │   │   └── authconnect/
-│   │   │       └── auth.connect.go # Generated Connect stubs
-│   │   └── author/v1/
-│   │       ├── author.pb.go      # Generated
-│   │       └── authorconnect/
-│   │           └── author.connect.go # Generated
+│   │   ├── serviceb/v1/
+│   │   │   ├── serviceb.pb.go        # Generated protobuf types
+│   │   │   └── servicebconnect/
+│   │   │       └── serviceb.connect.go # Generated Connect stubs
+│   │   └── servicea/v1/
+│   │       ├── servicea.pb.go      # Generated
+│   │       └── serviceaconnect/
+│   │           └── servicea.connect.go # Generated
 │   │
 │   └── ts/                   # DIRTY: Generated TypeScript code (do not edit manually)
 │       ├── package.json      # npm package: @example/contracts
-│       ├── auth/v1/
-│       │   ├── auth_pb.ts        # Generated protobuf types
-│       │   └── auth_connect.ts   # Generated Connect stubs
-│       └── author/v1/
-│           ├── author_pb.ts      # Generated
-│           └── author_connect.ts # Generated
+│       ├── serviceb/v1/
+│       │   ├── serviceb_pb.ts        # Generated protobuf types
+│       │   └── serviceb_connect.ts   # Generated Connect stubs
+│       └── servicea/v1/
+│           ├── servicea_pb.ts      # Generated
+│           └── servicea_connect.ts # Generated
 │
 ├── bridge/                    # Bridge modules (public service APIs)
 │   │
-│   └── authorsvc/            # Author service public API
-│       ├── go.mod            # Module: bridge/authorsvc v1.0.0
+│   └── serviceasvc/            # Service A public API
+│       ├── go.mod            # Module: bridge/serviceasvc v1.0.0
 │       │                     # Dependencies: ZERO (truly dependency-free)
 │       │
 │       ├── README.md         # Bridge usage documentation
 │       │
 │       ├── api.go            # Public service interface
-│       │   # type AuthorService interface {
-│       │   #   GetAuthor(ctx, id) (*AuthorDTO, error)
-│       │   #   CreateAuthor(ctx, req) (*AuthorDTO, error)
+│       │   # type ServiceA interface {
+│       │   #   GetEntityA(ctx, id) (*EntityA, error)
+│       │   #   CreateEntityA(ctx, req) (*EntityA, error)
 │       │   # }
 │       │
 │       ├── dto.go            # Domain-friendly DTOs
-│       │   # type AuthorDTO struct { ID, Name, Bio string }
+│       │   # type EntityA struct { ID, Name, Bio string }
 │       │
 │       ├── errors.go         # Public error types
-│       │   # var ErrAuthorNotFound = errors.New("author not found")
+│       │   # var ErrEntityANotFound = errors.New("entity not found")
 │       │
 │       └── inproc_client.go  # In-process client (thin wrapper)
-│           # Implements AuthorService interface
-│           # Accepts AuthorService interface (not concrete type!)
+│           # Implements ServiceA interface
+│           # Accepts ServiceA interface (not concrete type!)
 │           # Calls via interface (function call, no network)
 │
 ├── services/
 │   │
-│   ├── authsvc/              # Authentication Service
-│   │   ├── go.mod            # Module: services/authsvc v2.1.0
-│   │   │                     # Dependencies: bridge/authorsvc, contracts (optional)
+│   ├── servicebsvc/              # Service B
+│   │   ├── go.mod            # Module: services/servicebsvc v2.1.0
+│   │   │                     # Dependencies: bridge/serviceasvc, contracts (optional)
 │   │   │
 │   │   ├── README.md         # Service documentation
 │   │   ├── mise.toml         # Service-specific tasks
 │   │   ├── Dockerfile
 │   │   │
 │   │   ├── cmd/
-│   │   │   └── authsvc/
+│   │   │   └── servicebsvc/
 │   │   │       └── main.go   # Composition root
 │   │   │           # Wires dependencies:
 │   │   │           # - In dev: uses bridge.InprocClient
-│   │   │           # - In prod: uses authorconnect.Client
+│   │   │           # - In prod: uses serviceaconnect.Client
 │   │   │
 │   │   ├── test/             # Service-level tests
-│   │   │   └── contract/     # CONTRACT TESTS (verify authsvc's own API contracts)
-│   │   │       └── http_api_test.go  # Tests authsvc HTTP responses match spec
+│   │   │   └── contract/     # CONTRACT TESTS (verify servicebsvc's own API contracts)
+│   │   │       └── http_api_test.go  # Tests servicebsvc HTTP responses match spec
 │   │   │
 │   │   └── internal/         # PRIVATE - cannot be imported by other services
 │   │       │
@@ -136,9 +136,9 @@ service-manager/
 │   │       │       │         # Owned by application layer
 │   │       │       │         # Implemented by adapters
 │   │       │       │
-│   │       │       ├── author_client.go  # Outbound port
-│   │       │       │   # type AuthorClient interface {
-│   │       │       │   #   GetAuthor(ctx, id) (*AuthorInfo, error)
+│   │       │       ├── servicea_client.go  # Outbound port
+│   │       │       │   # type ServiceAClient interface {
+│   │       │       │   #   GetEntityA(ctx, id) (*EntityA, error)
 │   │       │       │   # }
 │   │       │       │
 │   │       │       ├── cache.go          # Outbound port
@@ -166,7 +166,7 @@ service-manager/
 │   │       │   │   └── connect/  # Connect/gRPC adapter (optional)
 │   │       │   │       ├── server.go
 │   │       │   │       └── handlers/
-│   │       │   │           └── auth_handler.go
+│   │       │   │           └── serviceb_handler.go
 │   │       │   │
 │   │       │   └── outbound/ # Outbound adapters (secondary/driven)
 │   │       │       │         # Application -> External systems
@@ -181,18 +181,18 @@ service-manager/
 │   │       │       │   │
 │   │       │       │   └── memory/   # In-memory (testing)
 │   │       │       │
-│   │       │       ├── authorclient/  # Author service client adapters
+│   │       │       ├── serviceaclient/  # Service A client adapters
 │   │       │       │   ├── inproc/   # In-process adapter (TODAY)
 │   │       │       │   │   ├── client.go
-│   │       │       │   │   │   # Implements ports.AuthorClient
-│   │       │       │   │   │   # Uses bridge/authorsvc.InprocClient
+│   │       │       │   │   │   # Implements ports.ServiceAClient
+│   │       │       │   │   │   # Uses bridge/serviceasvc.InprocClient
 │   │       │       │   │   │   # Zero network overhead
 │   │       │       │   │   └── client_test.go     # INTEGRATION TEST
 │   │       │       │   │
 │   │       │       │   └── connect/  # Network adapter (LATER)
 │   │       │       │       ├── client.go
-│   │       │       │       │   # Implements ports.AuthorClient
-│   │       │       │       │   # Uses authorconnect.Client
+│   │       │       │       │   # Implements ports.ServiceAClient
+│   │       │       │       │   # Uses serviceaconnect.Client
 │   │       │       │       │   # Network overhead (HTTP, serialization)
 │   │       │       │       └── client_test.go     # INTEGRATION TEST
 │   │       │       │
@@ -214,38 +214,38 @@ service-manager/
 │   │           ├── observability/
 │   │           └── server/   # Server lifecycle
 │   │
-│   └── authorsvc/            # Author Service (similar structure)
-│       ├── go.mod            # Module: services/authorsvc v1.0.0
-│       │                     # Dependencies: bridge/authorsvc (to implement server)
+│   └── serviceasvc/            # Service A (similar structure)
+│       ├── go.mod            # Module: services/serviceasvc v1.0.0
+│       │                     # Dependencies: bridge/serviceasvc (to implement server)
 │       │
-│       ├── cmd/authorsvc/
+│       ├── cmd/serviceasvc/
 │       │   └── main.go       # Wires bridge.InprocServer to internal/application
 │       │
 │       ├── test/             # Service-level tests
-│       │   └── contract/     # CONTRACT TESTS (verify authorsvc implements bridge correctly)
-│       │       ├── bridge_test.go         # Tests InprocServer implements bridge.AuthorService
+│       │   └── contract/     # CONTRACT TESTS (verify serviceasvc implements bridge correctly)
+│       │       ├── bridge_test.go         # Tests InprocServer implements bridge.ServiceA
 │       │       └── http_api_test.go       # Tests HTTP API matches spec
 │       │
 │       └── internal/
 │           ├── domain/       # UNIT TESTS (co-located *_test.go)
-│           │   └── author/   # Author aggregate
-│           │       ├── author.go
-│           │       ├── author_test.go    # UNIT TEST
-│           │       ├── author_id.go
+│           │   └── entitya/   # Entity A aggregate
+│           │       ├── entitya.go
+│           │       ├── entitya_test.go    # UNIT TEST
+│           │       ├── entitya_id.go
 │           │       ├── name.go
 │           │       ├── name_test.go      # UNIT TEST
 │           │       └── repository.go
 │           │
 │           ├── application/  # UNIT TESTS (co-located *_test.go with mocked ports)
 │           │   ├── command/
-│           │   │   ├── create_author.go
-│           │   │   ├── create_author_test.go  # UNIT TEST (mocked ports)
-│           │   │   └── update_author.go
+│           │   │   ├── create_entitya.go
+│           │   │   ├── create_entitya_test.go  # UNIT TEST (mocked ports)
+│           │   │   └── update_entitya.go
 │           │   │
 │           │   ├── query/
-│           │   │   ├── get_author.go
-│           │   │   ├── get_author_test.go     # UNIT TEST (mocked ports)
-│           │   │   └── list_authors.go
+│           │   │   ├── get_entitya.go
+│           │   │   ├── get_entitya_test.go     # UNIT TEST (mocked ports)
+│           │   │   └── list_entitya.go
 │           │   │
 │           │   └── ports/
 │           │       ├── image_client.go
@@ -256,10 +256,10 @@ service-manager/
 │           │   │   │
 │           │   │   ├── bridge/   # Bridge adapter (in-process)
 │           │   │   │   ├── inproc_server.go
-│           │   │   │   │   # Implements bridge.AuthorService interface
-│           │   │   │   │   # Wraps authorsvc/internal/application
-│           │   │   │   │   # CAN import authorsvc/internal (same module!)
-│           │   │   │   │   # Returns AuthorService interface for loose coupling
+│           │   │   │   │   # Implements bridge.ServiceA interface
+│           │   │   │   │   # Wraps serviceasvc/internal/application
+│           │   │   │   │   # CAN import serviceasvc/internal (same module!)
+│           │   │   │   │   # Returns ServiceA interface for loose coupling
 │           │   │   │   └── inproc_server_test.go  # INTEGRATION TEST
 │           │   │   │
 │           │   │   ├── http/     # HTTP REST adapter
@@ -271,8 +271,8 @@ service-manager/
 │           │   │
 │           │   └── outbound/
 │           │       ├── persistence/postgres/
-│           │       │   ├── author_repository.go
-│           │       │   └── author_repository_test.go  # INTEGRATION TEST (real DB)
+│           │       │   ├── entitya_repository.go
+│           │       │   └── entitya_repository_test.go  # INTEGRATION TEST (real DB)
 │           │       ├── imageclient/
 │           │       └── cache/
 │           │
@@ -309,6 +309,6 @@ service-manager/
 - **Contract Tests**: Per-service in `services/*/test/contract/` (each service tests its OWN API contracts - bridge implementation, HTTP responses, etc.)
 - **E2E Tests**: Root-level `test/e2e/` (complete user journeys across all services)
 
-**Important:** Contract tests live in the **PROVIDER** service, not the consumer. Example: `services/authorsvc/test/contract/bridge_test.go` verifies that authorsvc correctly implements `bridge/authorsvc.AuthorService`. The consumer (authsvc) never imports the provider's implementation.
+**Important:** Contract tests live in the **PROVIDER** service, not the consumer. Example: `services/serviceasvc/test/contract/bridge_test.go` verifies that serviceasvc correctly implements `bridge/serviceasvc.ServiceA`. The consumer (servicebsvc) never imports the provider's implementation.
 
 See [testing-strategy.md](testing-strategy.md) for detailed testing guidance.

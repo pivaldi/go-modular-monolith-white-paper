@@ -7,7 +7,7 @@
   - [Table of Contents](#table-of-contents)
   - [Detailed Bridge Architecture](#detailed-bridge-architecture)
     - [Bridge Module Responsibilities](#bridge-module-responsibilities)
-    - [Example: Author Service Bridge](#example-author-service-bridge)
+    - [Example: Service A Bridge](#example-service-a-bridge)
     - [Understanding InprocServer and InprocClient](#understanding-inprocserver-and-inprocclient)
     - [Using the Bridge in Another Service](#using-the-bridge-in-another-service)
     - [Wiring in main.go](#wiring-in-maingo)
@@ -43,7 +43,7 @@ A bridge module for a service contains ONLY public contracts:
 The service itself (not the bridge) provides:
 5. **In-process server implementation** in `services/*/internal/adapters/inbound/bridge/` that implements the bridge interface
 
-### Example: Author Service Bridge
+### Example: Service A Bridge
 
 See [example-author-service-bridge.md](example-author-service-bridge.md)
 
@@ -53,30 +53,30 @@ Before diving into the full implementation, let's understand what these componen
 
 **What They Are:**
 
-- **InprocServer**: An inbound adapter that lives in `services/authorsvc/internal/adapters/inbound/bridge/` and implements the bridge interface by wrapping the service's application layer
-- **InprocClient**: A thin client wrapper that lives in `bridge/authorsvc/` and calls any implementation of the bridge interface (no network)
+- **InprocServer**: An inbound adapter that lives in `services/serviceasvc/internal/adapters/inbound/bridge/` and implements the bridge interface by wrapping the service's application layer
+- **InprocClient**: A thin client wrapper that lives in `bridge/serviceasvc/` and calls any implementation of the bridge interface (no network)
 
 **Simplified Structure:**
 
 ```go
-// Bridge Module: bridge/authorsvc/inproc_client.go
-// InprocClient accepts ANY implementation of AuthorService
+// Bridge Module: bridge/serviceasvc/inproc_client.go
+// InprocClient accepts ANY implementation of ServiceA
 type InprocClient struct {
-    server AuthorService  // Interface reference (not concrete type!)
+    server ServiceA  // Interface reference (not concrete type!)
 }
 
-// Service Adapter: services/authorsvc/internal/adapters/inbound/bridge/inproc_server.go
+// Service Adapter: services/serviceasvc/internal/adapters/inbound/bridge/inproc_server.go
 // InprocServer implements the bridge interface
 type InprocServer struct {
     // References to the service's internal application layer
-    getAuthorQuery    *query.GetAuthorQuery      // from authorsvc/internal/application/query
-    listAuthorsQuery  *query.ListAuthorsQuery    // from authorsvc/internal/application/query
-    createAuthorCmd   *command.CreateAuthorCommand  // from authorsvc/internal/application/command
-    updateAuthorCmd   *command.UpdateAuthorCommand  // from authorsvc/internal/application/command
+    getEntityAQuery    *query.GetEntityAQuery      // from serviceasvc/internal/application/query
+    listEntityAQuery  *query.ListEntityAQuery    // from serviceasvc/internal/application/query
+    createEntityACmd   *command.CreateEntityACommand  // from serviceasvc/internal/application/command
+    updateEntityACmd   *command.UpdateEntityACommand  // from serviceasvc/internal/application/command
 }
 
 // Factory returns interface type for loose coupling
-func NewInprocServer(...) AuthorService {
+func NewInprocServer(...) ServiceA {
     return &InprocServer{...}
 }
 ```
@@ -85,29 +85,29 @@ func NewInprocServer(...) AuthorService {
 
 ```mermaid
 graph TB
-    subgraph consumer["AUTHSVC (Consumer Service)"]
+    subgraph consumer["SERVICEBSVC (Consumer Service)"]
         app_layer["Application Layer"]
-        port["AuthorClient Port<br/>(interface)"]
+        port["ServiceAClient Port<br/>(interface)"]
         inproc_adapter["InprocAdapter"]
 
-        app_layer -->|needs author data| port
+        app_layer -->|needs service A data| port
         port --> inproc_adapter
     end
 
-    subgraph bridge["BRIDGE (bridge/authorsvc)"]
+    subgraph bridge["BRIDGE (bridge/serviceasvc)"]
         inproc_client["InprocClient<br/>(thin wrapper)"]
-        interface["AuthorService<br/>(interface)"]
+        interface["ServiceA<br/>(interface)"]
 
         inproc_client -->|implements| interface
     end
 
-    subgraph provider["AUTHORSVC (Provider Service)"]
+    subgraph provider["SERVICEASVC (Provider Service)"]
         inproc_server["InprocServer<br/>(internal/adapters/inbound/bridge)"]
-        query["GetAuthorQuery.Execute"]
+        query["GetEntityAQuery.Execute"]
         domain["Domain Layer"]
         repo["Repository"]
 
-        inproc_server -->|implements AuthorService<br/>CAN import internal| query
+        inproc_server -->|implements ServiceA<br/>CAN import internal| query
         query --> domain
         domain --> repo
     end
@@ -128,34 +128,34 @@ graph TB
    package main
 
    import (
-       bridgeauthor "github.com/example/service-manager/bridge/authorsvc"
-       authorconfig "github.com/example/service-manager/services/authorsvc/config"
-       authoradapters "github.com/example/service-manager/services/authorsvc/internal/adapters/inbound/bridge"
-       "github.com/example/service-manager/services/authsvc"
+       bridgeservicea "github.com/example/service-manager/bridge/serviceasvc"
+       serviceaconfig "github.com/example/service-manager/services/serviceasvc/config"
+       serviceaadapters "github.com/example/service-manager/services/serviceasvc/internal/adapters/inbound/bridge"
+       "github.com/example/service-manager/services/servicebsvc"
    )
 
    func main() {
        ctx := context.Background()
 
-       // Phase 1: Load author service config
-       authorCfg, _ := authorconfig.Load()
+       // Phase 1: Load service A config
+       serviceaCfg, _ := serviceaconfig.Load()
 
-       // Phase 2: Create InprocServer (lives in authorsvc internal adapters)
-       // Returns: bridgeauthor.AuthorService interface
-       authorServer := authoradapters.NewInprocServer(authorCfg, logger)
+       // Phase 2: Create InprocServer (lives in serviceasvc internal adapters)
+       // Returns: bridgeservicea.ServiceA interface
+       serviceAServer := serviceaadapters.NewInprocServer(serviceaCfg, logger)
 
        // Phase 3: Wrap with InprocClient (lives in bridge module)
-       // Accepts: bridgeauthor.AuthorService interface
-       authorClient := bridgeauthor.NewInprocClient(authorServer)
+       // Accepts: bridgeservicea.ServiceA interface
+       serviceAClient := bridgeservicea.NewInprocClient(serviceAServer)
 
        // Phase 4: Initialize consumer service with the client
-       authCfg, _ := authconfig.Load()
-       authService := authsvc.New(authCfg, authorClient)
+       servicebCfg, _ := servicebconfig.Load()
+       serviceBService := servicebsvc.New(servicebCfg, serviceAClient)
 
        // Phase 5: Run services via errgroup supervisor
        g, gCtx := errgroup.WithContext(ctx)
-       g.Go(func() error { return authorServer.Run(gCtx) })
-       g.Go(func() error { return authService.Run(gCtx) })
+       g.Go(func() error { return serviceAServer.Run(gCtx) })
+       g.Go(func() error { return serviceBService.Run(gCtx) })
 
        if err := g.Wait(); err != nil {
            log.Fatal(err)
@@ -165,37 +165,37 @@ graph TB
 
 2. **Runtime Call Flow**:
    ```go
-   // authsvc application layer
-   result := authorClient.GetAuthor(ctx, "author-123")
+   // servicebsvc application layer
+   result := serviceAClient.GetEntityA(ctx, "entity-123")
        │
        ▼ (interface call)
-   // authsvc outbound adapter
-   inprocAdapter.GetAuthor(ctx, "author-123")
+   // servicebsvc outbound adapter
+   inprocAdapter.GetEntityA(ctx, "entity-123")
        │
        ▼ (interface call)
    // bridge InprocClient (thin wrapper in bridge module)
-   client.server.GetAuthor(ctx, "author-123")
+   client.server.GetEntityA(ctx, "entity-123")
        │
        ▼ (interface call - no knowledge of concrete InprocServer type!)
-   // authorsvc InprocServer (inbound adapter in service internal)
-   server.getAuthorQuery.Execute(ctx, "author-123")
+   // serviceasvc InprocServer (inbound adapter in service internal)
+   server.getEntityAQuery.Execute(ctx, "entity-123")
        │
        ▼ (direct function call - same module, can import internals)
-   // authorsvc internal application layer
-   query.Execute(ctx, "author-123")
+   // serviceasvc internal application layer
+   query.Execute(ctx, "entity-123")
    ```
 
 **Key Principles:**
 
 1. **True Module Independence**:
-   - InprocServer lives in `services/authorsvc/internal/adapters/inbound/bridge/`
+   - InprocServer lives in `services/serviceasvc/internal/adapters/inbound/bridge/`
    - Bridge module has literally zero dependencies (no `require` statements)
    - InprocServer CAN import service internals (same Go module)
    - Bridge CANNOT import service internals (different Go module - compiler enforced)
 
 2. **Interface-Based Coupling**:
-   - InprocClient holds `AuthorService` interface, not `*InprocServer` concrete type
-   - NewInprocServer() returns `AuthorService` interface
+   - InprocClient holds `ServiceA` interface, not `*InprocServer` concrete type
+   - NewInprocServer() returns `ServiceA` interface
    - Enables loose coupling and testability
    - Consumers never know about the concrete implementation
 
@@ -211,7 +211,7 @@ graph TB
    - Performance identical to direct internal imports (but with boundaries!)
 
 5. **Swappable Implementation**:
-   - Consumer sees only the bridge interface (`AuthorService`)
+   - Consumer sees only the bridge interface (`ServiceA`)
    - Can swap InprocClient for NetworkClient without changing application layer
    - Bridge provides the abstraction point
 
@@ -222,41 +222,41 @@ Now see the full implementation with all methods and error handling in the file 
 ### Using the Bridge in Another Service
 
 ```go
-//services/authsvc/internal/adapters/outbound/authorclient/inproc/client.go
+//services/servicebsvc/internal/adapters/outbound/serviceaclient/inproc/client.go
 package inproc
 
 import (
     "context"
 
     // Import the bridge (public, allowed)
-    "github.com/example/service-manager/bridge/authorsvc"
+    "github.com/example/service-manager/bridge/serviceasvc"
 
-    // Import application port (internal to authsvc)
-    "github.com/example/service-manager/services/authsvc/internal/application/ports"
+    // Import application port (internal to servicebsvc)
+    "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
 )
 
-// Client adapts the bridge.AuthorService to our application's ports.AuthorClient.
+// Client adapts the bridge.ServiceA to our application's ports.ServiceAClient.
 type Client struct {
-    bridge authorsvc.AuthorService
+    bridge serviceasvc.ServiceA
 }
 
-func NewClient(bridge authorsvc.AuthorService) *Client {
+func NewClient(bridge serviceasvc.ServiceA) *Client {
     return &Client{bridge: bridge}
 }
 
-func (c *Client) GetAuthor(ctx context.Context, authorID string) (*ports.AuthorInfo, error) {
-    // Call bridge (which calls authorsvc internally)
-    dto, err := c.bridge.GetAuthor(ctx, authorID)
+func (c *Client) GetEntityA(ctx context.Context, entityID string) (*ports.EntityA, error) {
+    // Call bridge (which calls serviceasvc internally)
+    dto, err := c.bridge.GetEntityA(ctx, entityID)
     if err != nil {
         // Translate bridge errors to application errors
-        if errors.Is(err, authorsvc.ErrAuthorNotFound) {
-            return nil, ports.ErrAuthorNotFound
+        if errors.Is(err, serviceasvc.ErrEntityANotFound) {
+            return nil, ports.ErrEntityANotFound
         }
-        return nil, ports.ErrAuthorServiceDown
+        return nil, ports.ErrServiceADown
     }
 
     // Map bridge DTO to application DTO
-    return &ports.AuthorInfo{
+    return &ports.EntityA{
         ID:        dto.ID,
         Name:      dto.Name,
         Bio:       dto.Bio,
@@ -274,37 +274,37 @@ The monolith's main.go performs direct explicit wiring with clear initialization
 package main
 
 import (
-    bridgeauthor "github.com/example/service-manager/bridge/authorsvc"
-    authorconfig "github.com/example/service-manager/services/authorsvc/config"
-    authoradapters "github.com/example/service-manager/services/authorsvc/internal/adapters/inbound/bridge"
-    authconfig "github.com/example/service-manager/services/authsvc/config"
-    "github.com/example/service-manager/services/authsvc"
-    authorclientadapter "github.com/example/service-manager/services/authsvc/internal/adapters/outbound/authorclient/inproc"
+    bridgeservicea "github.com/example/service-manager/bridge/serviceasvc"
+    serviceaconfig "github.com/example/service-manager/services/serviceasvc/config"
+    serviceaadapters "github.com/example/service-manager/services/serviceasvc/internal/adapters/inbound/bridge"
+    servicebconfig "github.com/example/service-manager/services/servicebsvc/config"
+    "github.com/example/service-manager/services/servicebsvc"
+    serviceaclientadapter "github.com/example/service-manager/services/servicebsvc/internal/adapters/outbound/serviceaclient/inproc"
 )
 
 func main() {
     ctx := context.Background()
 
-    // 1. Config: Load author service configuration
-    authorCfg, _ := authorconfig.Load()
+    // 1. Config: Load service A configuration
+    serviceaCfg, _ := serviceaconfig.Load()
 
     // 2. Provider: Create InprocServer (returns interface)
-    authorServer := authoradapters.NewInprocServer(authorCfg, logger)
+    serviceAServer := serviceaadapters.NewInprocServer(serviceaCfg, logger)
 
     // 3. Bridge: Wrap with InprocClient
-    authorClient := bridgeauthor.NewInprocClient(authorServer)
+    serviceAClient := bridgeservicea.NewInprocClient(serviceAServer)
 
     // 4. Consumer Adapter: Wrap bridge client in outbound adapter
-    authorClientAdapter := authorclientadapter.NewClient(authorClient)
+    serviceAClientAdapter := serviceaclientadapter.NewClient(serviceAClient)
 
     // 5. Consumer Service: Initialize with dependencies
-    authCfg, _ := authconfig.Load()
-    authService := authsvc.New(authCfg, authorClientAdapter)
+    servicebCfg, _ := servicebconfig.Load()
+    serviceBService := servicebsvc.New(servicebCfg, serviceAClientAdapter)
 
     // 6. Run: Start all services via errgroup
     g, gCtx := errgroup.WithContext(ctx)
-    g.Go(func() error { return authorServer.Run(gCtx) })
-    g.Go(func() error { return authService.Run(gCtx) })
+    g.Go(func() error { return serviceAServer.Run(gCtx) })
+    g.Go(func() error { return serviceBService.Run(gCtx) })
 
     if err := g.Wait(); err != nil {
         log.Fatal(err)
@@ -316,13 +316,13 @@ func main() {
 - **Initialization order is explicit**: Provider service before consumer service
 - **No registry needed**: Direct wiring in main.go
 - **Type safety**: Compiler enforces correct interfaces
-- **Interface-based**: Everything operates on `AuthorService` interface, not concrete types
+- **Interface-based**: Everything operates on `ServiceA` interface, not concrete types
 
 ## Bridge Pattern Benefits
 
 1. **Compiler-Enforced Boundaries**
-   - authsvc cannot import `authorsvc/internal` (compiler error)
-   - authsvc can only import `bridge/authorsvc` (public API)
+   - servicebsvc cannot import `serviceasvc/internal` (compiler error)
+   - servicebsvc can only import `bridge/serviceasvc` (public API)
    - Violations are caught at compile time, not runtime or review
 
 2. **Zero Network Overhead**
@@ -331,8 +331,8 @@ func main() {
    - Performance equivalent to shared-module monolith
 
 3. **Clear Migration Path**
-   - Today: authsvc uses `bridge/authorsvc.InprocClient`
-   - Tomorrow: authsvc uses `authorconnect.Client` (HTTP/Connect)
+   - Today: servicebsvc uses `bridge/serviceasvc.InprocClient`
+   - Tomorrow: servicebsvc uses `serviceaconnect.Client` (HTTP/Connect)
    - Change is localized to wiring in `main.go`
    - Application layer is unchanged
 
@@ -363,20 +363,20 @@ These violations will be caught by `arch-test` in CI and fail the build:
 ✗ **Bridge importing service internals**
 ```go
 // BAD: Compiler allows, but arch-test prevents
-package authorsvc
+package serviceasvc
 
-import "github.com/.../services/authorsvc/internal/domain/author"
+import "github.com/.../services/serviceasvc/internal/domain/entitya"
 
-type AuthorService interface {
-    GetAuthor(ctx context.Context, id string) (*author.Author, error)
+type ServiceA interface {
+    GetEntityA(ctx context.Context, id string) (*entitya.EntityA, error)
     // arch-test detects internal/ import and FAILS
 }
 ```
 
 ✗ **Bridge with external dependencies**
 ```go
-// BAD: Adding dependencies in bridge/authorsvc/go.mod
-module github.com/example/service-manager/bridge/authorsvc
+// BAD: Adding dependencies in bridge/serviceasvc/go.mod
+module github.com/example/service-manager/bridge/serviceasvc
 
 require (
     github.com/google/uuid v1.3.0  // arch-test detects require and FAILS
@@ -395,17 +395,17 @@ These violations compile successfully but break architectural principles. They m
 ✗ **Bridge bloat with business logic**
 ```go
 // BAD: Compiles fine, but violates bridge purity
-package authorsvc
+package serviceasvc
 
-func (dto *AuthorDTO) Validate() error {
+func (dto *EntityA) Validate() error {
     if len(dto.Name) < 3 {
         return errors.New("name too short")  // Domain logic doesn't belong here
     }
     // Even though this is "pure" logic with no dependencies,
-    // it creates coupling - belongs in authorsvc/internal/domain
+    // it creates coupling - belongs in serviceasvc/internal/domain
 }
 
-func CalculateAuthorRating(articles int, followers int) int {
+func CalculateServiceARating(articles int, followers int) int {
     return articles*10 + followers  // Pure calculation, but still wrong place!
 }
 ```
@@ -418,24 +418,24 @@ func CalculateAuthorRating(articles int, followers int) int {
 ✓ **Keep bridges pure:**
 ```go
 // GOOD: Bridge is just a contract
-type AuthorDTO struct {
+type EntityA struct {
     ID   string
     Name string
     Bio  string
 }
 
-// Validation and business logic live in authorsvc/internal/domain
+// Validation and business logic live in serviceasvc/internal/domain
 // Bridges only define the contract
 ```
 
 ✗ **Shared utilities in bridge**
 ```go
 // BAD: Compiles, but creates service coupling
-package authorsvc
+package serviceasvc
 
 import "time"
 
-func FormatAuthorDate(t time.Time) string {
+func FormatEntityADate(t time.Time) string {
     return t.Format("2006-01-02")  // Seemingly innocent utility
     // Problem: Multiple services now depend on this formatting logic
 }
@@ -451,11 +451,11 @@ func FormatAuthorDate(t time.Time) string {
 // BAD: Domain layer using bridge DTOs directly
 package domain
 
-import "github.com/.../bridge/authorsvc"
+import "github.com/.../bridge/serviceasvc"
 
 type User struct {
     ID      string
-    Author  *authorsvc.AuthorDTO  // Domain using DTO as entity - WRONG
+    EntityA  *serviceasvc.EntityA  // Domain using DTO as entity - WRONG
 }
 ```
 
@@ -469,19 +469,19 @@ type User struct {
 // GOOD: Domain has its own types
 package domain
 
-type Author struct {  // Domain entity
-    ID   AuthorID
-    Name AuthorName
+type EntityA struct {  // Domain entity
+    ID   EntityAID
+    Name EntityAName
 }
 
 // Adapter layer maps between domain entities and bridge DTOs
-// services/authsvc/internal/adapters/outbound/authorclient/inproc/client.go
-func (c *Client) GetAuthor(id string) (*domain.Author, error) {
-    dto, err := c.bridge.GetAuthor(ctx, id)
+// services/servicebsvc/internal/adapters/outbound/serviceaclient/inproc/client.go
+func (c *Client) GetEntityA(id string) (*domain.EntityA, error) {
+    dto, err := c.bridge.GetEntityA(ctx, id)
     // Map DTO → Domain Entity
-    return &domain.Author{
-        ID:   domain.NewAuthorID(dto.ID),
-        Name: domain.NewAuthorName(dto.Name),
+    return &domain.EntityA{
+        ID:   domain.NewEntityAID(dto.ID),
+        Name: domain.NewEntityAName(dto.Name),
     }, nil
 }
 ```
@@ -492,7 +492,7 @@ func (c *Client) GetAuthor(id string) (*domain.Author, error) {
 
 ### What Belongs Where
 
-**In Bridge Modules** (`bridge/authorsvc/`):
+**In Bridge Modules** (`bridge/serviceasvc/`):
 - Interface definitions (service contracts)
 - DTOs (pure data structures, no methods except basic getters/setters)
 - Error constants (semantic errors like `ErrNotFound`)
@@ -563,23 +563,23 @@ This structure allows `Service A` to be extracted to a new repository by simply 
 
 ### Deep Dive: Why Not Co-locate the API?
 
-A frequent question from developers is: *"Why not just place the API package inside the service module (e.g., `services/authorsvc/api`)? Why do we need a separate `bridge/` directory?"*
+A frequent question from developers is: *"Why not just place the API package inside the service module (e.g., `services/serviceasvc/api`)? Why do we need a separate `bridge/` directory?"*
 
 While co-locating the API appears simpler initially, it introduces severe architectural coupling in a Go environment.
 
 #### 1. The "Dependency Hell" Trap (Source-Level Isolation)
-If you place the API package inside `authorsvc/api`, it shares the `go.mod` of the service.
+If you place the API package inside `serviceasvc/api`, it shares the `go.mod` of the service.
 
 **The Consequence:**
-Any consumer (e.g., `AuthService`) that imports `authorsvc/api` must add a `require` for the **entire** `authorsvc` module.
+Any consumer (e.g., `Service B`) that imports `serviceasvc/api` must add a `require` for the **entire** `serviceasvc` module.
 
-*   **Inherited Dependencies:** `AuthService` implicitly inherits **ALL** of `AuthorService`'s dependencies (AWS SDKs, Database drivers, logging libs), even if it only needs a struct definition.
-*   **Development Friction:** Running `go test ./...` in `AuthService` forces the download and compilation of `AuthorService`'s heavy dependency tree.
-*   **Version Conflicts:** If `AuthorService` relies on a legacy version of a library and `AuthService` needs a modern version, you are blocked.
+*   **Inherited Dependencies:** `Service B` implicitly inherits **ALL** of `Service A`'s dependencies (AWS SDKs, Database drivers, logging libs), even if it only needs a struct definition.
+*   **Development Friction:** Running `go test ./...` in `Service B` forces the download and compilation of `Service A`'s heavy dependency tree.
+*   **Version Conflicts:** If `Service A` relies on a legacy version of a library and `Service B` needs a modern version, you are blocked.
 
 **With a Bridge Module:**
-*   `bridge/authorsvc` has a separate `go.mod` with **ZERO** dependencies.
-*   `AuthService` imports `bridge/authorsvc` and inherits nothing.
+*   `bridge/serviceasvc` has a separate `go.mod` with **ZERO** dependencies.
+*   `Service B` imports `bridge/serviceasvc` and inherits nothing.
 
 *Note: While the final binary (`main.go`) will eventually merge all dependencies, the Bridge ensures **Source-Level Isolation**. This protects the development lifecycle, accelerates CI, and enables independent major version upgrades.*
 
@@ -600,7 +600,7 @@ In complex systems, services often need to reference each other bi-directionally
 Moving the API into the service folder erodes the physical boundary that tooling can enforce.
 
 *   **Current Architecture:** `arch-test` enforces that `bridge/` cannot import `internal/`. This is robust because they are different root directories.
-*   **Co-located Approach:** If the API is in `services/authorsvc/api`, developers are frequently tempted to move "helper" structs from `internal/` to `api/` for convenience, re-introducing coupling.
+*   **Co-located Approach:** If the API is in `services/serviceasvc/api`, developers are frequently tempted to move "helper" structs from `internal/` to `api/` for convenience, re-introducing coupling.
 
 #### Summary Comparison
 
@@ -625,7 +625,7 @@ The answer is clear, **DON'T DO IT**. Here's why:
 - **Compile-Time Dependencies VS Runtime Dependencies**
   - Importing `serviceA/api` into `serviceB` only gives `serviceB` access to the **Type Definitions (interfaces and DTOs)**. **It does not give `serviceB` a running instance of `serviceA`**.
   - If `serviceB`'s try to import `serviceA/api` and expect it to "just work," they will fail because the implementation behind the interface is missing, it's nil or non-existent.
-  - If `serviceB` instantiates the real `serviceA`, `serviceB` would need to know how to configure `serviceA` (DB passwords, AWS keys, etc.).  
+  - If `serviceB` instantiates the real `serviceA`, `serviceB` would need to know how to configure `serviceA` (DB passwords, AWS keys, etc.).
     This breaks encapsulation and **Violates the Boundaries**.
   - The "Pure Bridge" architecture solves this by enforcing **Dependency Inversion**.
 - **Fatal flaw: Circular dependencies**
@@ -645,9 +645,9 @@ The answer is clear, **DON'T DO IT**. Here's why:
 - **Physical Boundary Enforcement:**
   - Co-locating the API erodes the physical boundary.
   - It makes it significantly harder for tooling (like arch-test) to enforce that the public contract never imports internal implementation details.
-- **Harder extraction later**: if `serviceB/api` lives inside the `serviceB` module, when distribuing a module, every consumer of this module must change imports and you often end up re-creating a shared “contracts” repo anyway.
-- **Dependency leakage**: it becomes tempting for `serviceB/api` to pull in “just one helper” (logging, errors, DB types). Then consumers inherit `serviceB`’s dependency graph and coupling creeps back.
-- **Weaker boundary semantics**: “API = public surface” + “service internals” live together; governance is harder than a dedicated bridge/contracts module.
+- **Harder extraction later**: if `serviceB/api` lives inside the `serviceB` module, when distribuing a module, every consumer of this module must change imports and you often end up re-creating a shared "contracts" repo anyway.
+- **Dependency leakage**: it becomes tempting for `serviceB/api` to pull in "just one helper" (logging, errors, DB types). Then consumers inherit `serviceB`'s dependency graph and coupling creeps back.
+- **Weaker boundary semantics**: "API = public surface" + "service internals" live together; governance is harder than a dedicated bridge/contracts module.
 
-Importing the API is necessary for the **code to compile**, but **it is insufficient for the code to run**.  
+Importing the API is necessary for the **code to compile**, but **it is insufficient for the code to run**.
 Expecting `serviceB` to bootstrap `serviceA` for is an architectural anti-pattern that leads to **tight coupling** and the "Dependency Hell" that the "pure bridge" architecture solves elegantly.
