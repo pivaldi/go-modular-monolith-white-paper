@@ -714,6 +714,9 @@ If you're building a Go system with:
 - [Testing in Go](https://go.dev/doc/tutorial/add-a-test)
 
 ### Tools
-- [arch-go](https://github.com/arch-go/arch-go): Architectural testing for Go
-- [go-cleanarch](https://github.com/roblaszczak/go-cleanarch): Validating layer dependencies
-- [godepgraph](https://github.com/kisielk/godepgraph): Visualizing dependency graphs
+- [arch-go](https://github.com/arch-go/arch-go): Architectural testing for Go.
+- [go-cleanarch](https://github.com/roblaszczak/go-cleanarch): Validating layer dependencies.
+- [godepgraph](https://github.com/kisielk/godepgraph): Visualizing dependency graphs.
+- [Dep-Tree](https://github.com/gabotechs/dep-tree): Visualize the entropy of a code base with a 3d force-directed graph.
+- [Goda](https://github.com/loov/goda): Go Dependency Analysis toolkit.
+- [go-callvis](https://github.com/ondrajz/go-callvis): A development tool to help visualize call graph of a Go program using interactive view.
