@@ -2,6 +2,27 @@
 
 When you're ready to add network transport, follow this workflow.
 
+## Service-Specific vs Global Generation
+
+This architecture supports two generation strategies:
+
+| Strategy | When to Use | Command | Config File |
+|----------|-------------|---------|-------------|
+| **Service-Specific** | Development, service builds | `buf generate --template buf.gen.author.yaml` | `buf.gen.<service>.yaml` |
+| **Global** | CI, full rebuilds, releasing | `buf generate` | `buf.gen.yaml` |
+
+**Service-Specific Benefits:**
+- ✅ Faster builds (only regenerate what you need)
+- ✅ Language selection (Go-only for backend, TS-only for frontend)
+- ✅ Isolation (changes to other APIs don't affect your build)
+- ✅ Clear dependencies (each service owns its generation config)
+
+**When to Use Global:**
+- CI/CD pipelines that build all services
+- Before creating releases or tags
+- When updating shared protobuf dependencies
+- Initial setup or major refactoring
+
 ## 1. Define Service Contract
 
 **File: `contracts/proto/author/v1/author.proto`**
@@ -48,20 +69,90 @@ message CreateAuthorResponse {
 
 ## 2. Generate Code
 
-`buf.gen.yaml` lives in `contracts/` (not the repo root). Run generation from there:
+### Create Service-Specific Generation Config
+
+For each service, create a `buf.gen.<service>.yaml` in the contracts directory:
+
+**File: `contracts/buf.gen.author.yaml`**
+
+```yaml
+# contracts/buf.gen.author.yaml - Generate only Author API
+version: v2
+managed:
+  enabled: false
+inputs:
+  - directory: proto/author   # Point to author proto directory only
+plugins:
+  # Go: protobuf types
+  - remote: buf.build/protocolbuffers/go
+    out: go/author            # → contracts/go/author/
+    opt: paths=source_relative
+  # Go: Connect RPC stubs
+  - remote: buf.build/connectrpc/go
+    out: go/author            # → contracts/go/author/
+    opt: paths=source_relative
+```
+
+### Create Per-Service Buf Module Config (if needed)
+
+**File: `contracts/proto/author/buf.yaml`**
+
+```yaml
+version: v2
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE
+```
+
+### Run Generation
+
+Run from the contracts directory using the service-specific template:
 
 ```bash
 cd contracts
-buf generate
+buf generate --template buf.gen.author.yaml
 
-# Generated files (Go):
+# Generated files (Go only, as configured):
 # - go/author/v1/author.pb.go
-# - go/author/v1/authorconnect/author.connect.go
-
-# Generated files (TypeScript, if ts plugins are configured):
-# - ts/author/v1/author_pb.ts
-# - ts/author/v1/author_connect.ts
+# - go/author/v1/authorv1connect/author.connect.go
 ```
+
+**Alternative: Global Generation (CI/Full Builds)**
+
+```bash
+cd contracts
+buf generate  # Uses buf.gen.yaml, generates ALL APIs
+
+# Generates code for all services in proto/:
+# - go/author/v1/...
+# - go/todo/v1/...
+# - go/user/v1/...
+# Plus TypeScript if configured
+```
+
+### Integration with Service Build Tools
+
+Add generation task to your service's `mise.toml`:
+
+```toml
+# services/authorsvc/mise.toml
+[tasks.generate]
+description = "Generate code from protobuf definitions (Author API only)"
+run = """
+cd ../../contracts
+buf generate --template buf.gen.author.yaml
+"""
+
+[tasks.build]
+description = "Build the application binary"
+depends = ["generate"]  # Auto-generate before building
+run = "go build -o bin/authorsvc ./cmd/authorsvc"
+```
+
+Now `mise build` will automatically regenerate only the Author API before building.
 
 ## 3. Implement Connect Handler (Inbound Adapter)
 

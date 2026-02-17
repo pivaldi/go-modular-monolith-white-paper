@@ -258,22 +258,36 @@ author_service_url: "https://author-service.internal:8080"
 The `contracts` module uses a single `go.mod` but separates schemas from generated artifacts into language-specific subdirectories:
 
 ```
-contracts/                  # One Go module (go.mod here)
-├── buf.gen.yaml            # Generation config — run `buf generate` from here
-├── proto/                  # CLEAN: .proto schemas only
-│   ├── buf.yaml            # Buf module config (proto root)
-│   └── author/v1/
-│       └── author.proto
-├── go/                     # DIRTY: generated Go code (do not edit)
-│   └── author/v1/
-│       ├── author.pb.go
-│       └── authorconnect/
-│           └── author.connect.go
-└── ts/                     # DIRTY: generated TypeScript code (do not edit)
-    ├── package.json        # npm package: @example/contracts
-    └── author/v1/
-        ├── author_pb.ts
-        └── author_connect.ts
+contracts/                      # One Go module (go.mod here)
+├── buf.gen.yaml                # Global generation config (all APIs)
+├── buf.gen.author.yaml         # Service-specific config (author API only)
+├── buf.gen.user.yaml           # Service-specific config (user API only)
+├── proto/                      # CLEAN: .proto schemas only
+│   ├── buf.yaml                # Buf module config (proto root)
+│   ├── author/                 # Author service contract
+│   │   ├── buf.yaml            # Per-service buf config (optional)
+│   │   └── v1/
+│   │       └── author.proto
+│   └── user/                   # User service contract
+│       └── v1/
+│           └── user.proto
+├── go/                         # DIRTY: generated Go code (do not edit)
+│   ├── author/v1/              # Generated from proto/author/v1/
+│   │   ├── author.pb.go
+│   │   └── authorv1connect/
+│   │       └── author.connect.go
+│   └── user/v1/                # Generated from proto/user/v1/
+│       ├── user.pb.go
+│       └── userv1connect/
+│           └── user.connect.go
+└── ts/                         # DIRTY: generated TypeScript code (do not edit)
+    ├── package.json            # npm package: @example/contracts
+    ├── author/v1/
+    │   ├── author_pb.ts
+    │   └── author_connect.ts
+    └── user/v1/
+        ├── user_pb.ts
+        └── user_connect.ts
 ```
 
 **Why one module, not two:**
@@ -283,23 +297,34 @@ contracts/                  # One Go module (go.mod here)
 - **No pollution**: `.proto` files live in `contracts/proto`, untouched by generated clutter.
 - **Simple workspace**: one entry in `go.work` instead of two synchronized modules.
 
+**Service-Specific Generation:**
+
+Each service should have its own `buf.gen.<service>.yaml` configuration file in the contracts directory. This allows services to:
+- Generate only their own API code (faster builds)
+- Specify which languages they need (e.g., Go-only for backend services)
+- Maintain isolation between service codebases
+
 ### Buf Configuration Files
 
 **This guide uses Buf v2 syntax.** Key difference from v1: use `remote:` (not `plugin:`) for BSR-hosted plugins in `buf.gen.yaml`.
 
-This architecture uses three separate buf configuration files:
+This architecture uses multiple buf configuration files:
 
 | File | Location | Purpose | Used by |
 |------|----------|---------|---------|
 | `buf.yaml` | Repo root | Workspace config | `buf lint`, `buf breaking` (CI) |
 | `buf.yaml` | `contracts/proto/` | Module config | `buf generate`, `buf lint` |
-| `buf.gen.yaml` | `contracts/` | Code generation | `buf generate` |
+| `buf.yaml` | `contracts/proto/<service>/` | Per-service module config (optional) | `buf lint`, `buf format` |
+| `buf.gen.yaml` | `contracts/` | Global code generation (all APIs) | `buf generate` (CI/full builds) |
+| `buf.gen.<service>.yaml` | `contracts/` | Service-specific generation | `buf generate --template` (dev builds) |
 
 **Key Points:**
 
-- `buf.gen.yaml` lives inside `contracts/` (not at the repo root)
+- Generation configs (`buf.gen*.yaml`) live inside `contracts/` (not at the repo root)
 - Run `buf generate` from the `contracts/` directory
-- All `out:` paths in `buf.gen.yaml` are relative to `contracts/`
+- All `out:` paths in `buf.gen*.yaml` are relative to `contracts/`
+- Use service-specific templates for development: `buf generate --template buf.gen.todo.yaml`
+- Use global template for CI or full builds: `buf generate`
 - The repo-root `buf.yaml` does NOT drive generation — it only enables workspace-wide lint/breaking checks in CI
 
 **`buf.yaml` — repo root (workspace config)**
@@ -330,14 +355,14 @@ breaking:
     - FILE                  # detect field removal, type changes, etc.
 ```
 
-**`buf.gen.yaml` — `contracts/buf.gen.yaml` (generation config)**
+**`buf.gen.yaml` — `contracts/buf.gen.yaml` (global generation config)**
 
-Defines code generation plugins and their output directories.
+Defines code generation for ALL APIs. Use this for CI or full builds.
 
 **IMPORTANT:** Buf v2 uses `remote:` for BSR-hosted plugins (not `plugin:` like v1).
 
 ```yaml
-# contracts/buf.gen.yaml
+# contracts/buf.gen.yaml - Generate all APIs
 version: v2
 inputs:
   - directory: proto          # contracts/proto/ is the buf module
@@ -358,6 +383,64 @@ plugins:
   - remote: buf.build/connectrpc/es
     out: ts                                 # → contracts/ts/
     opt: target=ts
+```
+
+**`buf.gen.<service>.yaml` — Service-specific generation configs**
+
+Each service should have its own generation config. This enables:
+- **Faster builds**: Only regenerate the API you're working on
+- **Language selection**: Backend services only need Go, frontends only need TypeScript
+- **Isolation**: Changes to other services don't trigger your rebuilds
+
+**Example: `contracts/buf.gen.author.yaml` (Author service only)**
+
+```yaml
+# contracts/buf.gen.author.yaml - Generate only Author API
+version: v2
+managed:
+  enabled: false
+inputs:
+  - directory: proto/author   # Point directly to author proto directory
+plugins:
+  # Go: protobuf types
+  - remote: buf.build/protocolbuffers/go
+    out: go/author            # → contracts/go/author/
+    opt: paths=source_relative
+  # Go: Connect RPC stubs
+  - remote: buf.build/connectrpc/go
+    out: go/author            # → contracts/go/author/
+    opt: paths=source_relative
+  # Note: TypeScript plugins omitted for backend-only service
+```
+
+**Key differences from global config:**
+- `inputs.directory` points to specific service: `proto/author` instead of `proto`
+- `out` paths include service name: `go/author` instead of `go`
+- Can omit plugins for unneeded languages (no TypeScript for backend services)
+- Requires `proto/author/buf.yaml` to exist (marks it as a buf module)
+
+**Usage:**
+
+```bash
+# Generate only Author API (development)
+cd contracts
+buf generate --template buf.gen.author.yaml
+
+# Generate all APIs (CI/full build)
+cd contracts
+buf generate
+```
+
+**Service mise.toml integration:**
+
+```toml
+# services/authorsvc/mise.toml
+[tasks.generate]
+description = "Generate code from protobuf definitions (Author API only)"
+run = """
+cd ../../contracts
+buf generate --template buf.gen.author.yaml
+"""
 ```
 
 **Plugin Options Explained:**
