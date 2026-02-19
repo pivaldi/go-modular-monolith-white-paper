@@ -4,21 +4,21 @@ When you're ready to add network transport, follow this workflow.
 
 ## 1. Define Service Contract
 
-**File: `contracts/proto/author/v1/author.proto`**
+**File: `contracts/proto/serviceasvc/v1/serviceasvc.proto`**
 
 ```protobuf
 syntax = "proto3";
 
-package author.v1;
+package serviceasvc.v1;
 
-option go_package = "github.com/example/service-manager/contracts/go/author/v1;authorv1";
+option go_package = "github.com/example/service-manager/contracts/gen/serviceasvc/v1;serviceasvcv1";
 
-service AuthorService {
-  rpc GetAuthor(GetAuthorRequest) returns (GetAuthorResponse) {}
-  rpc CreateAuthor(CreateAuthorRequest) returns (CreateAuthorResponse) {}
+service ServiceAService {
+  rpc GetServiceA(GetServiceARequest) returns (GetServiceAResponse) {}
+  rpc CreateServiceA(CreateServiceARequest) returns (CreateServiceAResponse) {}
 }
 
-message Author {
+message ServiceA {
   string id = 1;
   string name = 2;
   string bio = 3;
@@ -27,22 +27,22 @@ message Author {
   int64 updated_at = 6;
 }
 
-message GetAuthorRequest {
+message GetServiceARequest {
   string id = 1;
 }
 
-message GetAuthorResponse {
-  Author author = 1;
+message GetServiceAResponse {
+  ServiceA servicea = 1;
 }
 
-message CreateAuthorRequest {
+message CreateServiceARequest {
   string name = 1;
   string bio = 2;
   string website = 3;
 }
 
-message CreateAuthorResponse {
-  Author author = 1;
+message CreateServiceAResponse {
+  ServiceA servicea = 1;
 }
 ```
 
@@ -55,60 +55,60 @@ cd contracts
 buf generate
 
 # Generated files (Go):
-# - go/author/v1/author.pb.go
-# - go/author/v1/authorconnect/author.connect.go
+# - gen/serviceasvc/v1/serviceasvc.pb.go
+# - gen/serviceasvc/v1/serviceasvcconnect/serviceasvc.connect.go
 
 # Generated files (TypeScript, if ts plugins are configured):
-# - ts/author/v1/author_pb.ts
-# - ts/author/v1/author_connect.ts
+# - gen/ts/serviceasvc/v1/serviceasvc_pb.ts
+# - gen/ts/serviceasvc/v1/serviceasvc_connect.ts
 ```
 
 ## 3. Implement Connect Handler (Inbound Adapter)
 
 ```go
-// services/authorsvc/internal/adapters/inbound/connect/handlers/author_handler.go
+// services/serviceasvc/internal/adapters/inbound/connect/handlers/servicea_handler.go
 package handlers
 
 import (
     "context"
     "connectrpc.com/connect"
 
-    authorv1 "github.com/example/service-manager/contracts/go/author/v1"
-    "github.com/example/service-manager/contracts/go/author/v1/authorconnect"
-    "github.com/example/service-manager/services/authorsvc/internal/application/command"
-    "github.com/example/service-manager/services/authorsvc/internal/application/query"
+    serviceasvcv1 "github.com/example/service-manager/contracts/gen/serviceasvc/v1"
+    "github.com/example/service-manager/contracts/gen/serviceasvc/v1/serviceasvcconnect"
+    "github.com/example/service-manager/services/serviceasvc/internal/application/command"
+    "github.com/example/service-manager/services/serviceasvc/internal/application/query"
 )
 
-type AuthorHandler struct {
-    getAuthorQuery  *query.GetAuthorQuery
-    createAuthorCmd *command.CreateAuthorCommand
+type ServiceAHandler struct {
+    getServiceAQuery  *query.GetServiceAQuery
+    createServiceACmd *command.CreateServiceACommand
 }
 
-func NewAuthorHandler(
-    getAuthorQuery *query.GetAuthorQuery,
-    createAuthorCmd *command.CreateAuthorCommand,
-) *AuthorHandler {
-    return &AuthorHandler{
-        getAuthorQuery:  getAuthorQuery,
-        createAuthorCmd: createAuthorCmd,
+func NewServiceAHandler(
+    getServiceAQuery *query.GetServiceAQuery,
+    createServiceACmd *command.CreateServiceACommand,
+) *ServiceAHandler {
+    return &ServiceAHandler{
+        getServiceAQuery:  getServiceAQuery,
+        createServiceACmd: createServiceACmd,
     }
 }
 
 // Ensure we implement the interface
-var _ authorconnect.AuthorServiceHandler = (*AuthorHandler)(nil)
+var _ serviceasvcconnect.ServiceAServiceHandler = (*ServiceAHandler)(nil)
 
-func (h *AuthorHandler) GetAuthor(
+func (h *ServiceAHandler) GetServiceA(
     ctx context.Context,
-    req *connect.Request[authorv1.GetAuthorRequest],
-) (*connect.Response[authorv1.GetAuthorResponse], error) {
+    req *connect.Request[serviceasvcv1.GetServiceARequest],
+) (*connect.Response[serviceasvcv1.GetServiceAResponse], error) {
     // Call application layer
-    result, err := h.getAuthorQuery.Execute(ctx, req.Msg.Id)
+    result, err := h.getServiceAQuery.Execute(ctx, req.Msg.Id)
     if err != nil {
         return nil, connect.NewError(connect.CodeNotFound, err)
     }
 
     // Map to protobuf
-    author := &authorv1.Author{
+    servicea := &serviceasvcv1.ServiceA{
         Id:        result.ID,
         Name:      result.Name,
         Bio:       result.Bio,
@@ -117,8 +117,8 @@ func (h *AuthorHandler) GetAuthor(
         UpdatedAt: result.UpdatedAt.Unix(),
     }
 
-    return connect.NewResponse(&authorv1.GetAuthorResponse{
-        Author: author,
+    return connect.NewResponse(&serviceasvcv1.GetServiceAResponse{
+        Servicea: servicea,
     }), nil
 }
 ```
@@ -126,7 +126,7 @@ func (h *AuthorHandler) GetAuthor(
 ## 4. Create Connect Client (Outbound Adapter)
 
 ```go
-// services/authsvc/internal/adapters/outbound/authorclient/connect/client.go
+// services/servicebsvc/internal/adapters/outbound/serviceaclient/connect/client.go
 package connect
 
 import (
@@ -134,13 +134,13 @@ import (
     "net/http"
 
     "connectrpc.com/connect"
-    authorv1 "github.com/example/service-manager/contracts/go/author/v1"
-    "github.com/example/service-manager/contracts/go/author/v1/authorconnect"
-    "github.com/example/service-manager/services/authsvc/internal/application/ports"
+    serviceasvcv1 "github.com/example/service-manager/contracts/gen/serviceasvc/v1"
+    "github.com/example/service-manager/contracts/gen/serviceasvc/v1/serviceasvcconnect"
+    "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
 )
 
 type Client struct {
-    client authorconnect.AuthorServiceClient
+    client serviceasvcconnect.ServiceAServiceClient
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
@@ -148,7 +148,7 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
         httpClient = http.DefaultClient
     }
 
-    client := authorconnect.NewAuthorServiceClient(
+    client := serviceasvcconnect.NewServiceAServiceClient(
         httpClient,
         baseURL,
     )
@@ -156,21 +156,21 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
     return &Client{client: client}
 }
 
-func (c *Client) GetAuthor(ctx context.Context, authorID string) (*ports.AuthorInfo, error) {
-    req := connect.NewRequest(&authorv1.GetAuthorRequest{
-        Id: authorID,
+func (c *Client) GetServiceA(ctx context.Context, serviceaID string) (*ports.ServiceAInfo, error) {
+    req := connect.NewRequest(&serviceasvcv1.GetServiceARequest{
+        Id: serviceaID,
     })
 
-    resp, err := c.client.GetAuthor(ctx, req)
+    resp, err := c.client.GetServiceA(ctx, req)
     if err != nil {
         return nil, translateError(err)
     }
 
-    author := resp.Msg.Author
-    return &ports.AuthorInfo{
-        ID:   author.Id,
-        Name: author.Name,
-        Bio:  author.Bio,
+    servicea := resp.Msg.Servicea
+    return &ports.ServiceAInfo{
+        ID:   servicea.Id,
+        Name: servicea.Name,
+        Bio:  servicea.Bio,
     }, nil
 }
 
@@ -179,9 +179,9 @@ func translateError(err error) error {
     if errors.As(err, &connectErr) {
         switch connectErr.Code() {
         case connect.CodeNotFound:
-            return ports.ErrAuthorNotFound
+            return ports.ErrServiceANotFound
         default:
-            return ports.ErrAuthorServiceDown
+            return ports.ErrServiceAServiceDown
         }
     }
     return err
@@ -191,26 +191,26 @@ func translateError(err error) error {
 ## 5. Wire Based on Configuration
 
 ```go
-// services/authsvc/cmd/authsvc/main.go
+// services/servicebsvc/cmd/servicebsvc/main.go
 func main() {
     cfg := infra.LoadConfig()
 
-    var authorClient ports.AuthorClient
+    var serviceaClient ports.ServiceAClient
 
-    if cfg.UseInProcessBridge {
-        // In-process via bridge
-        authorServer := getAuthorServiceInprocServer()
-        authorBridge := authorsvc.NewInprocClient(authorServer)
-        authorClient = inproc.NewClient(authorBridge)
+    if cfg.UseInProcessContracts {
+        // In-process via contract definition
+        serviceaServer := getServiceAServiceInprocServer()
+        serviceaContract := serviceasvc.NewInprocClient(serviceaServer)
+        serviceaClient = inproc.NewClient(serviceaContract)
     } else {
         // Network via Connect
-        authorClient = connect.NewClient(cfg.AuthorServiceURL, &http.Client{
+        serviceaClient = connect.NewClient(cfg.ServiceAServiceURL, &http.Client{
             Timeout: 5 * time.Second,
         })
     }
 
     // Wire the rest of the service
-    deps := infra.InitializeDependencies(cfg, authorClient)
+    deps := infra.InitializeDependencies(cfg, serviceaClient)
     // ...
 }
 ```

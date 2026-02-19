@@ -39,9 +39,9 @@ func main() {
             Check:       checkAdapterDirection,
         },
         {
-            Name:        "bridge-purity",
-            Description: "Bridge modules must have zero dependencies",
-            Check:       checkBridgePurity,
+            Name:        "contract-definition-purity",
+            Description: "Contract definition modules must have zero dependencies",
+            Check:       checkContractDefinitionPurity,
         },
         {
             Name:        "module-dependencies",
@@ -218,30 +218,30 @@ func checkAdapterDirection() error {
     })
 }
 
-// checkBridgePurity ensures bridge modules:
+// checkContractDefinitionPurity ensures contract definition modules:
 // 1. Have no external dependencies in go.mod (literally zero require statements)
 // 2. Never import any internal/ packages (from any service)
-func checkBridgePurity() error {
-    bridgeModules, err := os.ReadDir("bridge")
+func checkContractDefinitionPurity() error {
+    contractDefModules, err := os.ReadDir("contracts/definitions")
     if err != nil {
-        // Bridge directory might not exist yet
+        // contracts/definitions directory might not exist yet
         return nil
     }
 
-    for _, bridge := range bridgeModules {
-        if !bridge.IsDir() {
+    for _, contractDef := range contractDefModules {
+        if !contractDef.IsDir() {
             continue
         }
 
-        bridgePath := filepath.Join("bridge", bridge.Name())
+        contractDefPath := filepath.Join("contracts/definitions", contractDef.Name())
 
         // Check 1: Verify go.mod has NO external dependencies
-        if err := checkGoModPurity(bridgePath, bridge.Name()); err != nil {
+        if err := checkGoModPurity(contractDefPath, contractDef.Name()); err != nil {
             return err
         }
 
-        // Check 2: Verify bridge files never import internal/ packages
-        if err := checkNoInternalImports(bridgePath, bridge.Name()); err != nil {
+        // Check 2: Verify contract definition files never import internal/ packages
+        if err := checkNoInternalImports(contractDefPath, contractDef.Name()); err != nil {
             return err
         }
     }
@@ -249,9 +249,9 @@ func checkBridgePurity() error {
     return nil
 }
 
-// checkGoModPurity verifies a bridge module has zero external dependencies
-func checkGoModPurity(bridgePath, bridgeName string) error {
-    goModPath := filepath.Join(bridgePath, "go.mod")
+// checkGoModPurity verifies a contract definition module has zero external dependencies
+func checkGoModPurity(contractDefPath, contractDefName string) error {
+    goModPath := filepath.Join(contractDefPath, "go.mod")
     content, err := os.ReadFile(goModPath)
     if err != nil {
         return nil // go.mod might not exist yet
@@ -280,19 +280,19 @@ func checkGoModPurity(bridgePath, bridgeName string) error {
                 parts := strings.Fields(line)
                 if len(parts) > 0 && strings.Contains(parts[0], ".") {
                     return fmt.Errorf(
-                        "bridge/%s has external dependency: %s\n"+
+                        "contracts/definitions/%s has external dependency: %s\n"+
                         "\n"+
-                        "Bridges must have ZERO dependencies (no require statements).\n"+
+                        "Contract definitions must have ZERO dependencies (no require statements).\n"+
                         "\n"+
                         "If you see service internals here, InprocServer is in the wrong location.\n"+
-                        "Move InprocServer to: services/%s/internal/adapters/inbound/bridge/\n"+
+                        "Move InprocServer to: services/%s/internal/adapters/inbound/contracts/\n"+
                         "\n"+
-                        "Bridge modules should contain ONLY:\n"+
+                        "Contract definition modules should contain ONLY:\n"+
                         "  - Interfaces (api.go)\n"+
                         "  - DTOs (dto.go)\n"+
                         "  - Errors (errors.go)\n"+
                         "  - InprocClient (thin wrapper)\n",
-                        bridgeName, line, bridgeName,
+                        contractDefName, line, contractDefName,
                     )
                 }
             }
@@ -302,9 +302,9 @@ func checkGoModPurity(bridgePath, bridgeName string) error {
     return nil
 }
 
-// checkNoInternalImports verifies bridge code never imports internal/ packages
-func checkNoInternalImports(bridgePath, bridgeName string) error {
-    err := filepath.Walk(bridgePath, func(path string, info os.FileInfo, err error) error {
+// checkNoInternalImports verifies contract definition code never imports internal/ packages
+func checkNoInternalImports(contractDefPath, contractDefName string) error {
+    err := filepath.Walk(contractDefPath, func(path string, info os.FileInfo, err error) error {
         if err != nil {
             return err
         }
@@ -322,20 +322,20 @@ func checkNoInternalImports(bridgePath, bridgeName string) error {
         for _, imp := range f.Imports {
             importPath := strings.Trim(imp.Path.Value, "\"")
 
-            // Bridge modules CANNOT import ANY internal/ packages
+            // Contract definition modules CANNOT import ANY internal/ packages
             if strings.Contains(importPath, "/internal/") {
                 return fmt.Errorf(
-                    "bridge/%s/%s: imports internal package: %s\n"+
+                    "contracts/definitions/%s/%s: imports internal package: %s\n"+
                     "\n"+
-                    "Bridge modules must NEVER import internal/ packages from any service.\n"+
+                    "Contract definition modules must NEVER import internal/ packages from any service.\n"+
                     "\n"+
                     "If this is InprocServer, it belongs in the service's internal adapters:\n"+
-                    "  Move to: services/%s/internal/adapters/inbound/bridge/inproc_server.go\n"+
+                    "  Move to: services/%s/internal/adapters/inbound/contracts/inproc_server.go\n"+
                     "\n"+
-                    "Bridge modules can only import:\n"+
+                    "Contract definition modules can only import:\n"+
                     "  - Standard library\n"+
-                    "  - Other bridge modules (public APIs)\n",
-                    bridgeName, filepath.Base(path), importPath, bridgeName,
+                    "  - Other contract definition modules (public APIs)\n",
+                    contractDefName, filepath.Base(path), importPath, contractDefName,
                 )
             }
         }
@@ -414,13 +414,13 @@ func checkModuleDependencies() error {
     // NOTE: Go compiler prevents package-level cycles automatically.
     // However, Go workspaces ALLOW module-level cycles (A requires B, B requires A).
     // We forbid module cycles because:
-    // - Bridge modules should be dependency-free (pure interfaces)
-    // - Services should depend on bridges, not vice versa
+    // - Contract definition modules should be dependency-free (pure interfaces)
+    // - Services should depend on contract definitions, not vice versa
     // - Circular module deps prevent independent evolution
     //
     // Example violation:
-    //   services/servicebsvc/go.mod: require bridge/serviceasvc ✓ OK
-    //   bridge/serviceasvc/go.mod: require services/servicebsvc ✗ CYCLE!
+    //   services/servicebsvc/go.mod: require contracts/definitions/serviceasvc ✓ OK
+    //   contracts/definitions/serviceasvc/go.mod: require services/servicebsvc ✗ CYCLE!
     for module := range graph {
         visited := make(map[string]bool)
         if hasCycle(module, graph, visited, make(map[string]bool)) {
@@ -560,7 +560,7 @@ Checking: service-isolation
     (cross-service internal import)
 
 Fix: Remove direct import of serviceasvc internals.
-      Use bridge/serviceasvc instead.
+      Use contracts/definitions/serviceasvc instead.
 ```
 
 ## Additional Validation Rules

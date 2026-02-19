@@ -1,4 +1,4 @@
-`services/authsvc/internal/application/command/login.go`:
+`services/servicebsvc/internal/application/command/login.go`:
 
 ```go
 package command
@@ -7,29 +7,29 @@ import (
     "context"
     "time"
 
-    "github.com/example/service-manager/services/authsvc/internal/application/ports"
-    "github.com/example/service-manager/services/authsvc/internal/domain/session"
-    "github.com/example/service-manager/services/authsvc/internal/domain/user"
+    "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
+    "github.com/example/service-manager/services/servicebsvc/internal/domain/session"
+    "github.com/example/service-manager/services/servicebsvc/internal/domain/user"
 )
 
 // LoginCommand handles user login.
 type LoginCommand struct {
     userRepo      user.Repository
     sessionRepo   session.Repository
-    authorClient  ports.AuthorClient
+    serviceaClient  ports.ServiceAClient
     logger        ports.Logger
 }
 
 func NewLoginCommand(
     userRepo user.Repository,
     sessionRepo session.Repository,
-    authorClient ports.AuthorClient,
+    serviceaClient ports.ServiceAClient,
     logger ports.Logger,
 ) *LoginCommand {
     return &LoginCommand{
         userRepo:     userRepo,
         sessionRepo:  sessionRepo,
-        authorClient: authorClient,
+        serviceaClient: serviceaClient,
         logger:       logger,
     }
 }
@@ -71,12 +71,12 @@ func (c *LoginCommand) Execute(ctx context.Context, input LoginInput) (*LoginOut
     // 4. Create session (domain logic)
     sess := session.New(u.ID(), 24*time.Hour)
 
-    // 5. Enrich with author information (optional, graceful degradation)
+    // 5. Enrich with Service A information (optional, graceful degradation)
     var authorName string
-    authorInfo, err := c.authorClient.GetAuthor(ctx, u.ID())
+    authorInfo, err := c.serviceaClient.GetServiceA(ctx, u.ID())
     if err != nil {
-        c.logger.Warn(ctx, "failed to fetch author info", ports.LogField{Key: "error", Value: err})
-        // Continue without author info
+        c.logger.Warn(ctx, "failed to fetch Service A info", ports.LogField{Key: "error", Value: err})
+        // Continue without Service A info
     } else {
         authorName = authorInfo.Name
     }
@@ -102,22 +102,22 @@ func (c *LoginCommand) Execute(ctx context.Context, input LoginInput) (*LoginOut
 }
 ```
 
-`services/authsvc/internal/application/ports/author_client.go`:
+`services/servicebsvc/internal/application/ports/author_client.go`:
 
 ```go
 package ports
 
 import "context"
 
-// AuthorClient is an outbound port for fetching author information.
+// ServiceAClient is an outbound port for fetching Service A information.
 // This interface is owned by the application layer.
-// It will be implemented by an adapter (e.g., InprocAuthorClient, ConnectAuthorClient).
-type AuthorClient interface {
-    GetAuthor(ctx context.Context, authorID string) (*AuthorInfo, error)
+// It will be implemented by an adapter (e.g., InprocServiceAClient, ConnectServiceAClient).
+type ServiceAClient interface {
+    GetServiceA(ctx context.Context, authorID string) (*ServiceAInfo, error)
 }
 
-// AuthorInfo is an application DTO for author data.
-type AuthorInfo struct {
+// ServiceAInfo is an application DTO for author data.
+type ServiceAInfo struct {
     ID        string
     Name      string
     Bio       string

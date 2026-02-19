@@ -15,32 +15,32 @@ When generating code, refactoring, or analyzing, you **MUST** adhere to these ar
 > Service A MUST NOT import Service B directly. Service A MUST NOT inherit Service B's dependencies.
 
 **Communication:**
-- Services communicate exclusively via **Bridge modules** (`bridge/<service>/`) for in-process calls
-- Or via **Connect RPC** (`contracts/go/<service>/v1/`) for network calls
+- Services communicate exclusively via **Contract Definitions** (`contracts/definitions/<service>/`) for in-process calls
+- Or via **Connect RPC** (`contracts/proto/<service>/v1/`) for network calls
 - Configuration determines which transport is used (same Port interface for both)
 
-## 2. The "Pure Bridge" Pattern (Zero Dependencies)
+## 2. The "Pure Contract Definition" Pattern (Zero Dependencies)
 
-The `bridge/<service>` directory defines the **public contract** for in-process communication.
+The `contracts/definitions/<service>` directory defines the **public contract** for in-process communication.
 
 ### Strict Rules
 
-**What MUST be in a bridge module:**
+**What MUST be in a contract definition module:**
 - Interface definitions (the "Port")
 - DTOs (Plain structs with only standard library types)
 - Public error variables (`var ErrEntityNotFound = errors.New(...)`)
 
-**What MUST NOT be in a bridge module:**
+**What MUST NOT be in a contract definition module:**
 - ❌ Any `require` statements in `go.mod` (zero external dependencies)
 - ❌ Imports of any `internal/` packages
 - ❌ Business logic, validation, or utility functions
 - ❌ Database models, HTTP handlers, or infrastructure code
-- ❌ Struct tags (`json`, `db`, `yaml`) - bridges are transport-agnostic
+- ❌ Struct tags (`json`, `db`, `yaml`) - contract definitions are transport-agnostic
 
-### Bridge Module Structure
+### Contract Definition Module Structure
 
 ```
-bridge/serviceasvc/
+contracts/definitions/serviceasvc/
 ├── go.mod              # MUST have zero requires (only module and go directives)
 ├── api.go              # Interface definition
 ├── dto.go              # Plain structs (no tags, no methods)
@@ -48,7 +48,7 @@ bridge/serviceasvc/
 └── inproc_client.go    # Thin wrapper accepting the interface
 ```
 
-**Key Insight:** The bridge is a **compile-time contract**, not a runtime artifact. It ensures type safety without coupling.
+**Key Insight:** The contract definition is a **compile-time contract**, not a runtime artifact. It ensures type safety without coupling.
 
 ## 3. Hexagonal Architecture (Ports & Adapters)
 
@@ -78,14 +78,14 @@ services/serviceasvc/internal/
 │   ├── inbound/         # Primary adapters (drive the app)
 │   │   ├── http/            # REST API
 │   │   ├── connect/         # gRPC/Connect
-│   │   └── bridge/          # In-process (implements bridge interface)
+│   │   └── contracts/       # In-process (implements contract interface)
 │   │       └── inproc_server.go
 │   │
 │   └── outbound/        # Secondary adapters (driven by app)
 │       ├── persistence/postgres/
 │       ├── cache/redis/
 │       └── servicebclient/
-│           ├── inproc/      # In-process adapter (uses bridge)
+│           ├── inproc/      # In-process adapter (uses contract definition)
 │           └── connect/     # Network adapter (uses Connect)
 │
 └── infra/               # LAYER 4: Infrastructure
@@ -107,7 +107,7 @@ Infra → All layers (composition)
 - ❌ Domain importing application or adapters
 - ❌ Application importing concrete adapters (only ports)
 - ❌ Services importing other services' `internal/` packages
-- ❌ Bridge modules importing anything except standard library
+- ❌ Contract definition modules importing anything except standard library
 
 ## 4. Protobuf Contracts (Optional - For Network Transport)
 
@@ -157,17 +157,17 @@ type ServiceAClient interface {
 }
 ```
 
-### Implementation: In-Process (Bridge)
+### Implementation: In-Process (Contract Definition)
 
 ```go
 // services/servicebsvc/internal/adapters/outbound/serviceaclient/inproc/client.go
 type Client struct {
-    bridge *serviceasvc.InprocClient  // from bridge/serviceasvc
+    contractClient *serviceasvc.InprocClient  // from contracts/definitions/serviceasvc
 }
 
 func (c *Client) GetEntityA(ctx context.Context, id string) (*EntityA, error) {
-    dto, err := c.bridge.GetEntityA(ctx, id)
-    // Map bridge DTO → application DTO
+    dto, err := c.contractClient.GetEntityA(ctx, id)
+    // Map contract DTO → application DTO
     return &EntityA{ID: dto.ID, Name: dto.Name}, err
 }
 ```
@@ -200,8 +200,8 @@ func main() {
     if cfg.UseInProcess {
         // In-process: <1μs latency, zero serialization
         server := getServiceAInprocServer()
-        bridge := serviceasvc.NewInprocClient(server)
-        serviceAClient = inproc.NewClient(bridge)
+        contractClient := serviceasvc.NewInprocClient(server)
+        serviceAClient = inproc.NewClient(contractClient)
     } else {
         // Network: 1-5ms latency, protobuf serialization
         serviceAClient = connect.NewClient(cfg.ServiceAURL, httpClient)
@@ -236,7 +236,7 @@ func main() {
 - **Infrastructure:** docker-compose with all services running
 
 **Key Rule:** Contract tests live in the **provider** service, not the consumer.
-Example: `services/serviceasvc/test/contract/bridge_test.go` verifies serviceasvc implements `bridge/serviceasvc.ServiceA` correctly.
+Example: `services/serviceasvc/test/contract/contracts_test.go` verifies serviceasvc implements `contracts/definitions/serviceasvc.ServiceA` correctly.
 
 ## 7. Code Generation & Buf Configuration
 
@@ -303,16 +303,16 @@ buf generate
 - Create `pkg/` or `shared/` modules (duplicates 50 lines of code, saves 5 services from dependency hell)
 - Put generated protobuf code in `services/<svc>/internal/`
 - Import `services/servicea/internal/...` from another service
-- Add dependencies to bridge modules (`bridge/*/go.mod` must have zero requires)
+- Add dependencies to contract definition modules (`contracts/definitions/*/go.mod` must have zero requires)
 - Put business logic in DTOs
-- Use `interface{}` or `any` in bridge interfaces (be explicit)
+- Use `interface{}` or `any` in contract interfaces (be explicit)
 - Create cyclic dependencies (use `tools/arch-test/` to detect)
-- Use tags in bridge DTOs (`json:`, `db:`, `yaml:` - bridges are transport-agnostic)
+- Use tags in contract DTOs (`json:`, `db:`, `yaml:` - contract definitions are transport-agnostic)
 
 ## 10. Migration Path
 
 **Start Simple:**
-1. Services in same process, bridge communication
+1. Services in same process, contract-based communication
 2. Add protobuf contracts when ready (but keep using in-process)
 3. Implement Connect handlers (test both transports)
 4. Implement Connect clients
@@ -324,15 +324,15 @@ buf generate
 
 **When adding a new service:**
 1. Create `services/<newsvc>/go.mod`
-2. Create `bridge/<newsvc>/` with zero dependencies
+2. Create `contracts/definitions/<newsvc>/` with zero dependencies
 3. Implement hexagonal layers in `services/<newsvc>/internal/`
-4. Add bridge implementation in `internal/adapters/inbound/bridge/`
+4. Add contract implementation in `internal/adapters/inbound/contracts/`
 5. Wire in `cmd/monolith/main.go`
 
 **When service A needs data from service B:**
 1. Define port interface in A: `internal/application/ports/serviceb_client.go`
 2. Implement adapter in A: `internal/adapters/outbound/servicebclient/inproc/client.go`
-3. Adapter uses B's bridge: `bridge/servicebsvc.ServiceB` interface
+3. Adapter uses B's contract definition: `contracts/definitions/servicebsvc.ServiceB` interface
 4. Wire in composition root
 
 **When adding network transport:**
@@ -346,7 +346,7 @@ buf generate
 
 See these files in the repository root:
 - `protobuf-contracts.md` - Detailed protobuf and Connect patterns
-- `bridge-module-pattern.md` - In-depth bridge pattern explanation
+- `contract-definition-pattern.md` - In-depth contract-based architecture explanation
 - `complete-directory-structure.md` - Full directory layout with examples
 - `testing-strategy.md` - Comprehensive testing guidance
 - `arch-test.md` - Architectural boundary enforcement tooling

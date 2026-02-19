@@ -3,73 +3,82 @@
 ```
 service-manager/
 ├── go.work                    # Go workspace definition
-│                              # use (./contracts ./bridge/serviceasvc ./services/...)
+│                              # use (./contracts ./contracts/definitions/serviceasvc ./services/...)
 │
 ├── mise.toml                  # Root orchestration tasks
 │
 ├── buf.yaml                   # Buf workspace config (lint/breaking rules across all modules)
 │
-├── contracts/                # Protobuf definitions (OPTIONAL - for network transport)
+├── contracts/                # Unified contracts module
 │   ├── go.mod                # Module: github.com/example/service-manager/contracts
 │   ├── buf.gen.yaml          # Code generation config (run `buf generate` from here)
 │   ├── README.md             # Contract versioning strategy
 │   │
-│   ├── proto/                # CLEAN: Schemas only (no generated code)
+│   ├── definitions/          # Contract Definitions (pure Go interfaces)
+│   │   │                     # ZERO dependencies - truly dependency-free
+│   │   │
+│   │   ├── serviceasvc/      # Service A public API
+│   │   │   ├── go.mod        # Module: contracts/definitions/serviceasvc v1.0.0
+│   │   │   │                 # Dependencies: ZERO (truly dependency-free)
+│   │   │   │
+│   │   │   ├── README.md     # Contract usage documentation
+│   │   │   │
+│   │   │   ├── api.go        # Public service interface
+│   │   │   │   # type ServiceAService interface {
+│   │   │   │   #   GetServiceA(ctx, id) (*ServiceADTO, error)
+│   │   │   │   #   CreateServiceA(ctx, req) (*ServiceADTO, error)
+│   │   │   │   # }
+│   │   │   │
+│   │   │   ├── dto.go        # Domain-friendly DTOs
+│   │   │   │   # type ServiceADTO struct { ID, Name, Bio string }
+│   │   │   │
+│   │   │   ├── errors.go     # Public error types
+│   │   │   │   # var ErrServiceANotFound = errors.New("entity not found")
+│   │   │   │
+│   │   │   └── inproc_client.go  # In-process client (thin wrapper)
+│   │   │       # Implements ServiceAService interface
+│   │   │       # Accepts ServiceAService interface (not concrete type!)
+│   │   │       # Calls via interface (function call, no network)
+│   │   │
+│   │   └── servicebsvc/      # Service B public API (similar structure)
+│   │       ├── go.mod
+│   │       ├── api.go
+│   │       ├── dto.go
+│   │       ├── errors.go
+│   │       └── inproc_client.go
+│   │
+│   ├── proto/                # CLEAN: Protobuf schemas only (OPTIONAL - for network transport)
 │   │   ├── buf.yaml          # Buf module config (marks this as the proto root)
-│   │   ├── serviceb/v1/
-│   │   │   └── serviceb.proto        # Service B definition
-│   │   └── servicea/v1/
-│   │       └── servicea.proto      # Service A definition
+│   │   ├── serviceasvc/v1/
+│   │   │   └── serviceasvc.proto   # Service A protobuf definition
+│   │   └── servicebsvc/v1/
+│   │       └── servicebsvc.proto   # Service B protobuf definition
 │   │
-│   ├── go/                   # DIRTY: Generated Go code (do not edit manually)
-│   │   ├── serviceb/v1/
-│   │   │   ├── serviceb.pb.go        # Generated protobuf types
-│   │   │   └── servicebconnect/
-│   │   │       └── serviceb.connect.go # Generated Connect stubs
-│   │   └── servicea/v1/
-│   │       ├── servicea.pb.go      # Generated
-│   │       └── serviceaconnect/
-│   │           └── servicea.connect.go # Generated
-│   │
-│   └── ts/                   # DIRTY: Generated TypeScript code (do not edit manually)
-│       ├── package.json      # npm package: @example/contracts
-│       ├── serviceb/v1/
-│       │   ├── serviceb_pb.ts        # Generated protobuf types
-│       │   └── serviceb_connect.ts   # Generated Connect stubs
-│       └── servicea/v1/
-│           ├── servicea_pb.ts      # Generated
-│           └── servicea_connect.ts # Generated
-│
-├── bridge/                    # Bridge modules (public service APIs)
-│   │
-│   └── serviceasvc/            # Service A public API
-│       ├── go.mod            # Module: bridge/serviceasvc v1.0.0
-│       │                     # Dependencies: ZERO (truly dependency-free)
+│   └── gen/                  # DIRTY: Generated code from protobuf (do not edit manually)
+│       ├── serviceasvc/v1/
+│       │   ├── serviceasvc.pb.go          # Generated protobuf types
+│       │   └── serviceasvcconnect/
+│       │       └── serviceasvc.connect.go # Generated Connect stubs
 │       │
-│       ├── README.md         # Bridge usage documentation
+│       ├── servicebsvc/v1/
+│       │   ├── servicebsvc.pb.go          # Generated protobuf types
+│       │   └── servicebsvcconnect/
+│       │       └── servicebsvc.connect.go # Generated Connect stubs
 │       │
-│       ├── api.go            # Public service interface
-│       │   # type ServiceA interface {
-│       │   #   GetEntityA(ctx, id) (*EntityA, error)
-│       │   #   CreateEntityA(ctx, req) (*EntityA, error)
-│       │   # }
-│       │
-│       ├── dto.go            # Domain-friendly DTOs
-│       │   # type EntityA struct { ID, Name, Bio string }
-│       │
-│       ├── errors.go         # Public error types
-│       │   # var ErrEntityANotFound = errors.New("entity not found")
-│       │
-│       └── inproc_client.go  # In-process client (thin wrapper)
-│           # Implements ServiceA interface
-│           # Accepts ServiceA interface (not concrete type!)
-│           # Calls via interface (function call, no network)
+│       └── ts/               # Generated TypeScript code
+│           ├── package.json  # npm package: @example/contracts
+│           ├── serviceasvc/v1/
+│           │   ├── serviceasvc_pb.ts        # Generated protobuf types
+│           │   └── serviceasvc_connect.ts   # Generated Connect stubs
+│           └── servicebsvc/v1/
+│               ├── servicebsvc_pb.ts        # Generated
+│               └── servicebsvc_connect.ts   # Generated
 │
 ├── services/
 │   │
 │   ├── servicebsvc/              # Service B
 │   │   ├── go.mod            # Module: services/servicebsvc v2.1.0
-│   │   │                     # Dependencies: bridge/serviceasvc, contracts (optional)
+│   │   │                     # Dependencies: contracts/definitions/serviceasvc, contracts (optional)
 │   │   │
 │   │   ├── README.md         # Service documentation
 │   │   ├── mise.toml         # Service-specific tasks
@@ -79,8 +88,8 @@ service-manager/
 │   │   │   └── servicebsvc/
 │   │   │       └── main.go   # Composition root
 │   │   │           # Wires dependencies:
-│   │   │           # - In dev: uses bridge.InprocClient
-│   │   │           # - In prod: uses serviceaconnect.Client
+│   │   │           # - In dev: uses serviceasvc.InprocClient
+│   │   │           # - In prod: uses serviceasvcconnect.Client
 │   │   │
 │   │   ├── test/             # Service-level tests
 │   │   │   └── contract/     # CONTRACT TESTS (verify servicebsvc's own API contracts)
@@ -185,14 +194,14 @@ service-manager/
 │   │       │       │   ├── inproc/   # In-process adapter (TODAY)
 │   │       │       │   │   ├── client.go
 │   │       │       │   │   │   # Implements ports.ServiceAClient
-│   │       │       │   │   │   # Uses bridge/serviceasvc.InprocClient
+│   │       │       │   │   │   # Uses serviceasvc.InprocClient
 │   │       │       │   │   │   # Zero network overhead
 │   │       │       │   │   └── client_test.go     # INTEGRATION TEST
 │   │       │       │   │
 │   │       │       │   └── connect/  # Network adapter (LATER)
 │   │       │       │       ├── client.go
 │   │       │       │       │   # Implements ports.ServiceAClient
-│   │       │       │       │   # Uses serviceaconnect.Client
+│   │       │       │       │   # Uses serviceasvcconnect.Client
 │   │       │       │       │   # Network overhead (HTTP, serialization)
 │   │       │       │       └── client_test.go     # INTEGRATION TEST
 │   │       │       │
@@ -216,14 +225,14 @@ service-manager/
 │   │
 │   └── serviceasvc/            # Service A (similar structure)
 │       ├── go.mod            # Module: services/serviceasvc v1.0.0
-│       │                     # Dependencies: bridge/serviceasvc (to implement server)
+│       │                     # Dependencies: contracts/definitions/serviceasvc (to implement server)
 │       │
 │       ├── cmd/serviceasvc/
-│       │   └── main.go       # Wires bridge.InprocServer to internal/application
+│       │   └── main.go       # Wires serviceasvc.InprocServer to internal/application
 │       │
 │       ├── test/             # Service-level tests
-│       │   └── contract/     # CONTRACT TESTS (verify serviceasvc implements bridge correctly)
-│       │       ├── bridge_test.go         # Tests InprocServer implements bridge.ServiceA
+│       │   └── contract/     # CONTRACT TESTS (verify serviceasvc implements contract correctly)
+│       │       ├── contracts_test.go      # Tests InprocServer implements serviceasvc.ServiceAService
 │       │       └── http_api_test.go       # Tests HTTP API matches spec
 │       │
 │       └── internal/
@@ -254,12 +263,12 @@ service-manager/
 │           ├── adapters/     # INTEGRATION TESTS (co-located *_test.go with real infrastructure)
 │           │   ├── inbound/      # Inbound adapters (primary/driving)
 │           │   │   │
-│           │   │   ├── bridge/   # Bridge adapter (in-process)
+│           │   │   ├── contracts/   # Contract adapter (in-process)
 │           │   │   │   ├── inproc_server.go
-│           │   │   │   │   # Implements bridge.ServiceA interface
+│           │   │   │   │   # Implements serviceasvc.ServiceAService interface
 │           │   │   │   │   # Wraps serviceasvc/internal/application
 │           │   │   │   │   # CAN import serviceasvc/internal (same module!)
-│           │   │   │   │   # Returns ServiceA interface for loose coupling
+│           │   │   │   │   # Returns ServiceAService interface for loose coupling
 │           │   │   │   └── inproc_server_test.go  # INTEGRATION TEST
 │           │   │   │
 │           │   │   ├── http/     # HTTP REST adapter
@@ -306,9 +315,9 @@ service-manager/
 
 - **Unit Tests**: Co-located in `services/*/internal/domain/**/*_test.go` and `services/*/internal/application/**/*_test.go`
 - **Integration Tests**: Co-located in `services/*/internal/adapters/**/*_test.go` (with real infrastructure)
-- **Contract Tests**: Per-service in `services/*/test/contract/` (each service tests its OWN API contracts - bridge implementation, HTTP responses, etc.)
+- **Contract Tests**: Per-service in `services/*/test/contract/` (each service tests its OWN API contracts, HTTP responses, etc.)
 - **E2E Tests**: Root-level `test/e2e/` (complete user journeys across all services)
 
-**Important:** Contract tests live in the **PROVIDER** service, not the consumer. Example: `services/serviceasvc/test/contract/bridge_test.go` verifies that serviceasvc correctly implements `bridge/serviceasvc.ServiceA`. The consumer (servicebsvc) never imports the provider's implementation.
+**Important:** Contract tests live in the **PROVIDER** service, not the consumer. Example: `services/serviceasvc/test/contract/contracts_test.go` verifies that serviceasvc correctly implements `serviceasvc.ServiceAService`. The consumer (servicebsvc) never imports the provider's implementation.
 
 See [testing-strategy.md](testing-strategy.md) for detailed testing guidance.

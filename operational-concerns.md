@@ -64,7 +64,7 @@ A comprehensive validation tool that checks:
 
 **Service Isolation:**
 - Services don't import other service `internal/` packages
-- Services only communicate via bridge modules or network
+- Services only communicate via contract definitions or network
 - No cross-service imports except through public contracts
 
 **Layer Purity:**
@@ -74,12 +74,12 @@ A comprehensive validation tool that checks:
 - Adapters implement application ports (dependency inversion)
 
 **Module Dependencies:**
-- Bridge modules have literally ZERO dependencies (no `require` statements in go.mod)
-- Bridge modules contain ONLY: interfaces, DTOs, errors, and InprocClient (thin wrapper)
-- InprocServer lives in service internal adapters (not in bridge)
-- Services depend only on: bridges, contracts (optional), and standard libraries
+- Contract definition modules have literally ZERO dependencies (no `require` statements in go.mod)
+- Contract definition modules contain ONLY: interfaces, DTOs, errors, and InprocClient (thin wrapper)
+- InprocServer lives in service internal adapters (not in contract definition)
+- Services depend only on: contract definitions, contracts (optional), and standard libraries
 - No circular dependencies between modules (at go.mod level - compiler already prevents package-level cycles)
-- Dependency graph flows in correct direction: consumer → bridge → (nothing)
+- Dependency graph flows in correct direction: consumer → contract definition → (nothing)
 
 **Import Graph Validation:**
 - Validate module dependency graph
@@ -114,7 +114,7 @@ Use these companion tools to visualize and analyze your dependency graph:
   godepgraph -s github.com/yourorg/yourproject | dot -Tpng -o deps.png
 
   # Focus on specific package
-  godepgraph -s -o github.com/yourorg/yourproject/services/authsvc | dot -Tpng -o authsvc-deps.png
+  godepgraph -s -o github.com/yourorg/yourproject/services/servicebsvc | dot -Tpng -o servicebsvc-deps.png
   ```
 
 - **[goda](https://github.com/loov/goda)** (Advanced)
@@ -134,7 +134,7 @@ Use these companion tools to visualize and analyze your dependency graph:
   goda tree "./..."
 
   # Analyze specific service dependencies
-  goda graph "reach(./services/authsvc/...)" | dot -Tpng -o authsvc-reach.png
+  goda graph "reach(./services/servicebsvc/...)" | dot -Tpng -o servicebsvc-reach.png
   ```
 
 - **[graphdot](https://github.com/ewohltman/graphdot)** (Module-level)
@@ -170,12 +170,12 @@ Example CI failure message:
 ✗ Architecture validation failed
 
 Checking: service-isolation
-  ✗ FAILED: services/authsvc/internal/adapters/outbound/helper.go
-    imports services/authorsvc/internal/domain/author
+  ✗ FAILED: services/servicebsvc/internal/adapters/outbound/helper.go
+    imports services/serviceasvc/internal/domain/entitya
     (cross-service internal import)
 
-Fix: Remove direct import of authorsvc internals.
-      Use bridge/authorsvc instead.
+Fix: Remove direct import of serviceasvc internals.
+      Use contracts/definitions/serviceasvc instead.
 ```
 
 ### Additional Validation Rules
@@ -215,7 +215,7 @@ func checkDomainCoverage() error {
 
 **Note:** While go-cleanarch provides excellent examples of clean architecture in Go, our pattern adds:
 - Go workspaces for true module isolation
-- Bridge modules for explicit service boundaries
+- Contract definitions for explicit service boundaries
 - Support for both in-process and network communication
 
 ## Observability
@@ -223,7 +223,7 @@ func checkDomainCoverage() error {
 **Metrics (Prometheus):**
 
 ```go
-// services/authsvc/internal/infra/observability/metrics.go
+// services/servicebsvc/internal/infra/observability/metrics.go
 var (
     HTTPRequestsTotal = promauto.NewCounterVec(...)
     LoginAttemptsTotal = promauto.NewCounterVec(...)
@@ -244,7 +244,7 @@ logger.Info(ctx, "user logged in",
 **Tracing (OpenTelemetry):**
 
 ```go
-tracer := otel.Tracer("authsvc")
+tracer := otel.Tracer("servicebsvc")
 ctx, span := tracer.Start(ctx, "LoginCommand.Execute")
 defer span.End()
 ```
@@ -252,7 +252,7 @@ defer span.End()
 ## Deployment
 
 **Development:**
-- All services run on localhost (in-process bridges)
+- All services run on localhost (in-process contract definitions)
 - Single `mise run dev` command
 - Hot reload via [air](https://github.com/air-verse/air).
 
@@ -267,8 +267,8 @@ go build -o bin/service-manager ./cmd/sm
 **Option 2: Separate deployments (distributed)**
 ```bash
 # Build separate binaries
-go build -o bin/authsvc ./services/authsvc/cmd/authsvc
-go build -o bin/authorsvc ./services/authorsvc/cmd/authorsvc
+go build -o bin/servicebsvc ./services/servicebsvc/cmd/servicebsvc
+go build -o bin/serviceasvc ./services/serviceasvc/cmd/serviceasvc
 
 # Deploy to separate pods/hosts
 # Services use Connect/HTTP to communicate

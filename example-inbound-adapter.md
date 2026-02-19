@@ -5,7 +5,7 @@ Inbound adapters (primary/driving adapters) deliver requests to the application 
 ## Types of Inbound Adapters
 
 Services typically have multiple inbound adapters:
-- **Bridge adapter** (`internal/adapters/inbound/bridge/`) - For in-process calls from other services
+- **Contract adapter** (`internal/adapters/inbound/contracts/`) - For in-process calls from other services
 - **HTTP adapter** (`internal/adapters/inbound/http/`) - For REST API endpoints
 - **Connect adapter** (`internal/adapters/inbound/connect/`) - For gRPC/Connect calls
 - **CLI adapter** (`internal/adapters/inbound/cli/`) - For command-line interfaces
@@ -16,7 +16,7 @@ All follow the same pattern: translate external requests → call application la
 
 ## Example: HTTP Adapter
 
-`services/authsvc/internal/adapters/inbound/http/handlers/login.go`:
+`services/servicebsvc/internal/adapters/inbound/http/handlers/login.go`:
 
 ```go
 package handlers
@@ -25,7 +25,7 @@ import (
     "encoding/json"
     "net/http"
 
-    "github.com/example/service-manager/services/authsvc/internal/application/command"
+    "github.com/example/service-manager/services/servicebsvc/internal/application/command"
 )
 
 type LoginHandler struct {

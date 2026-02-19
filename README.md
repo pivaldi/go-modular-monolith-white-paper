@@ -1,4 +1,4 @@
-# Go Workspaces Modular Monolith with "Pure" Bridge Modules
+# Go Workspaces Modular Monolith with "Pure" Contract Definitions
 
 **A Modular monolith pattern for building maintainable Go systems using workspaces with clear boundaries and flexible distribution.**
 
@@ -18,14 +18,14 @@
     - [1. Traditional Layered Monolith](#1-traditional-layered-monolith)
     - [2. Modular Monolith (Single Module)](#2-modular-monolith-single-module)
     - [3. Microservices-First](#3-microservices-first)
-    - [4. Go Workspaces Modular Monolith with Bridge Modules (Recommended)](#4-go-workspaces-modular-monolith-with-bridge-modules-recommended)
+    - [4. Go Workspaces Modular Monolith with Contract Definitions (Recommended)](#4-go-workspaces-modular-monolith-with-contract-definitions-recommended)
   - [The Recommended Pattern](#the-recommended-pattern)
     - [Core Principles](#core-principles)
     - [High-Level Architecture Diagram](#high-level-architecture-diagram)
   - [Architecture Deep Dive](#architecture-deep-dive)
     - [Complete Directory Structure](#complete-directory-structure)
     - [Key Architectural Decisions](#key-architectural-decisions)
-  - [Bridge Module Pattern](#bridge-module-pattern)
+  - [Contract Definition Pattern](#contract-definition-pattern)
   - [Runtime Orchestration: The Supervisor Pattern](#runtime-orchestration-the-supervisor-pattern)
     - [The Monolith Composition Root Managed by `errgroup`](#the-monolith-composition-root-managed-by-errgroup)
       - [Handling Cross-Service Events](#handling-cross-service-events)
@@ -73,7 +73,7 @@ Before exploring the detailed white-paper, you can read [this 15 minutes blog po
 
 ### The Monolith vs Microservices Dilemma
 
-The choice between monoliths and microservices is well-documented: monoliths can become tangled over time, while microservices introduce operational complexity from day one. This white paper presents a third approach—the **Go Workspaces Modular Monolith with Bridge Modules**—that provides clear service boundaries with flexible deployment options.
+The choice between monoliths and microservices is well-documented: monoliths can become tangled over time, while microservices introduce operational complexity from day one. This white paper presents a third approach—the **Go Workspaces Modular Monolith with Contract Definitions**—that provides clear service boundaries with flexible deployment options.
 
 ### What This Pattern Provides
 
@@ -137,7 +137,7 @@ Before presenting the recommended pattern, let's compare common architectural ap
 
 | Pattern | Boundaries | Performance | Migration | Complexity | Best For |
 |---------|-----------|-------------|-----------|------------|----------|
-| **Go Work + Bridge** | Strong | Excellent | Easy | Medium | 5-20 devs, likely distribution |
+| **Go Work + Contract Definition** | Strong | Excellent | Easy | Medium | 5-20 devs, likely distribution |
 | **Traditional Monolith** | None | Excellent | Hard | Very Low | 1-3 devs, simple domain |
 | **Modular Monolith** | Weak | Excellent | Medium | Low | 2-5 devs, unlikely distribution |
 | **Microservices** | Strongest | Good | N/A | Very High | 20+ devs, known distribution needs |
@@ -197,13 +197,13 @@ Before presenting the recommended pattern, let's compare common architectural ap
 
 **When to use:** Known scaling needs, large team (30+ devs), polyglot requirements
 
-### 4. Go Workspaces Modular Monolith with Bridge Modules (Recommended)
+### 4. Go Workspaces Modular Monolith with Contract Definitions (Recommended)
 
-**Structure:** Multiple Go modules coordinated by `go.work`, bridge modules for in-process calls
+**Structure:** Multiple Go modules coordinated by `go.work`, contract definitions for in-process calls
 
 **Pros:**
 - Strong boundaries (compiler-enforced)
-- Excellent performance (in-process via bridges)
+- Excellent performance (in-process via contract definitions)
 - Easy migration (swap adapters)
 - Monorepo convenience provided by [go.work](https://go.dev/doc/tutorial/workspaces)
 - Independent module versioning
@@ -211,7 +211,7 @@ Before presenting the recommended pattern, let's compare common architectural ap
 
 **Cons:**
 - Medium setup complexity (multiple `go.mod` files)
-- Requires understanding of bridge pattern
+- Requires understanding of contract-based architecture
 - More modules to coordinate
 
 **When to use:** Medium team (5-20 devs), clear boundaries, likely future distribution.
@@ -230,18 +230,18 @@ repository:
 - Workspace makes cross-module development seamless
 - Compiler enforces module boundaries
 
-**2. Bridge Modules for Explicit Boundaries**
+**2. Contract Definitions for Explicit Boundaries**
 
-Services communicate via public bridge modules:
-- Bridge defines the service API with Go interfaces
-- Bridge provides in-process client and server implementations
-- Services can only import bridge, not other service internals
+Services communicate via public contract definitions:
+- Contract definition defines the service API with Go interfaces
+- Contract definition provides in-process client and server implementations
+- Services can only import contract definitions, not other service internals
 - **Compiler prevents boundary violations**
 
 **3. Optional Network Transport**
 
 Network protocols like HTTP/Connect/gRPC are opt-in:
-- Use in-process bridges during development
+- Use in-process contract definitions during development
 - Add network transport when distribution is needed
 - **Swap adapters via dependency injection**
 - Same service code works with both transports
@@ -259,9 +259,9 @@ Each service uses clean architecture internally:
 ```mermaid
 graph TB
     subgraph monorepo["Service Manager (Monorepo)"]
-        contracts["contracts/<br/>(proto)<br/><br/>author.proto"]
-        bridge["bridge/<br/>(public)<br/><br/>authorsvc/<br/>api.go<br/>dto.go<br/>inproc_*.go"]
-        services["services/<br/>(private)<br/><br/>authsvc/<br/>internal/<br/><br/>authorsvc/<br/>internal/"]
+        contracts["contracts/<br/>(proto)<br/><br/>serviceasvc.proto"]
+        bridge["contracts/definitions/<br/>(public)<br/><br/>serviceasvc/<br/>api.go<br/>dto.go<br/>inproc_*.go"]
+        services["services/<br/>(private)<br/><br/>servicebsvc/<br/>internal/<br/><br/>serviceasvc/<br/>internal/"]
 
         services -->|uses| bridge
         bridge -->|generates from| contracts
@@ -272,38 +272,40 @@ graph TB
     style contracts fill:#e1f5ff
     style bridge fill:#fff4e1
     style services fill:#ffe1e1
+
+    note["Note: 'bridge' refers to the contract interface,<br/>not the architectural pattern"]
 ```
 
 **In-Process:**
 ```mermaid
 graph LR
-    authsvc["authsvc"] -->|calls| inproc_client["bridge.InprocClient"]
-    inproc_client -->|calls| inproc_server["bridge.InprocServer"]
-    inproc_server -->|calls| authorsvc_internal["authorsvc/internal"]
+    servicebsvc["servicebsvc"] -->|calls| inproc_client["contract.InprocClient"]
+    inproc_client -->|calls| inproc_server["contract.InprocServer"]
+    inproc_server -->|calls| serviceasvc_internal["serviceasvc/internal"]
 
     note["Performance: &lt;1μs latency, zero serialization"]
 
-    style authsvc fill:#e1f5ff
+    style servicebsvc fill:#e1f5ff
     style inproc_client fill:#fff4e1
     style inproc_server fill:#fff4e1
-    style authorsvc_internal fill:#ffe1e1
+    style serviceasvc_internal fill:#ffe1e1
 ```
 
 **Distributed:**
 ```mermaid
 graph LR
-    authsvc["authsvc"] -->|HTTP request| connect_client["Connect Client"]
+    servicebsvc["servicebsvc"] -->|HTTP request| connect_client["Connect Client"]
     connect_client -->|network| http["HTTP"]
     http -->|network| connect_server["Connect Server"]
-    connect_server -->|calls| authorsvc_internal["authorsvc/internal"]
+    connect_server -->|calls| serviceasvc_internal["serviceasvc/internal"]
 
     note["Performance: 1-5ms latency, protobuf serialization"]
 
-    style authsvc fill:#e1f5ff
+    style servicebsvc fill:#e1f5ff
     style connect_client fill:#fff4e1
     style http fill:#f0f0f0
     style connect_server fill:#fff4e1
-    style authorsvc_internal fill:#ffe1e1
+    style serviceasvc_internal fill:#ffe1e1
 ```
 
 ## Architecture Deep Dive
@@ -318,30 +320,30 @@ See the file [complete-directory-structure.md](complete-directory-structure.md).
 
 Each service is an independent Go module because:
 - **Compiler enforces boundaries** - Service A physically cannot import Service B's `internal/` package
-- **Independent dependency graphs** - `authsvc` doesn't inherit `authorsvc`'s PostgreSQL driver
+- **Independent dependency graphs** - `servicebsvc` doesn't inherit `serviceasvc`'s PostgreSQL driver
 - **Independent versioning** - Services can evolve at different rates
 - **Clear ownership** - Each module has its own `go.mod` showing dependencies
 - **Future extraction** - Already a separate module, easy to move to separate repo
 
-**2. Why Bridge Modules?**
+**2. Why Contract Definitions?**
 
-Bridge modules provide truly independent service boundaries:
+Contract definitions provide truly independent service boundaries:
 - **Public API definition** - Clear contract using Go interfaces
-- **True module independence** - Bridge has literally zero dependencies (no `require` statements)
+- **True module independence** - Contract definition has literally zero dependencies (no `require` statements)
 - **Compiler enforcement** - Services cannot import other service internals (different Go modules)
 - **In-process performance** - Direct function calls via interfaces, zero network overhead
 - **Explicit seam** - Visible boundary between services in the module structure
-- **Flexible implementation** - Same interface works for in-process and network transports
-- **Testability** - Easy to mock the bridge interface
+- **Flexible implementation** - Same contract interface works for in-process and network transports
+- **Testability** - Easy to mock the contract interface
 
-**Key architectural principle:** Bridge modules contain ONLY interfaces, DTOs, errors, and thin client wrappers. All implementations (including InprocServer) live in service internal adapters, where they can access the service's application layer.
+**Key architectural principle:** Contract definitions contain ONLY interfaces, DTOs, errors, and thin client wrappers. All implementations (including InprocServer) live in service internal adapters, where they can access the service's application layer.
 
 **3. Why Optional Protobuf?**
 
 Protobuf contracts are generated but not required for in-process communication:
-- Use **Go DTOs in bridges** during development (simple, idiomatic)
+- Use **Go DTOs in contract definitions** during development (simple, idiomatic)
 - Add **protobuf** when you need network transport
-- Bridge can use either protobuf types or custom Go types
+- Contract definition can use either protobuf types or custom Go types
 - Gradual adoption - start simple, add complexity when needed
 
 **4. Why Go Workspaces?**
@@ -354,13 +356,13 @@ Protobuf contracts are generated but not required for in-process communication:
 - **Replace directives** - Local overrides for development
 
 
-## Bridge Module Pattern
+## Contract Definition Pattern
 
-See the file [bridge-module-pattern.md](bridge-module-pattern.md).
+See the file [contract-definition-pattern.md](contract-definition-pattern.md).
 
 ## Runtime Orchestration: The Supervisor Pattern
 
-While `go.work` groups the code, the **Composition Root** groups the runtime. In a *Modular Monolith*, you need a single `main.go` that initializes all services, wires their bridges, and manages their lifecycles concurrently.
+While `go.work` groups the code, the **Composition Root** groups the runtime. In a *Modular Monolith*, you need a single `main.go` that initializes all services, wires their contract definitions, and manages their lifecycles concurrently.
 
 We use the Supervisor Pattern (via errgroup) to manage this. This ensures a "Shared Fate" architecture: if a critical service fails (e.g., DB disconnect), the supervisor cancels the context for all services, shutting down the monolith cleanly so the orchestrator (Kubernetes) can restart the pod.
 
@@ -372,17 +374,17 @@ See the file: [example-composition-root-managed-by-errgroup.md](example-composit
 See the file [cross-service-events.md](cross-service-events.md).
 
 ### Lifecycle Visualization
-The following diagram illustrates how the errgroup acts as a safety net. Note how an error in authorsvc propagates to stop authsvc immediately.
+The following diagram illustrates how the errgroup acts as a safety net. Note how an error in serviceasvc propagates to stop servicebsvc immediately.
 
 ```mermaid
 sequenceDiagram
     participant Main as Composition Root
     participant G as ErrGroup
-    participant A as AuthorService
-    participant B as AuthService
+    participant A as ServiceAService
+    participant B as ServiceBService
 
-    Main->>G: g.Go(AuthorService)
-    Main->>G: g.Go(AuthService)
+    Main->>G: g.Go(ServiceAService)
+    Main->>G: g.Go(ServiceBService)
 
     par Parallel Execution
         G->>A: ListenAndServe()
@@ -398,13 +400,13 @@ sequenceDiagram
     Note over B: Graceful Shutdown
     B-->>G: Returns nil (Success)
 
-    G-->>Main: Returns Error from AuthorService
+    G-->>Main: Returns Error from ServiceAService
     Main->>Main: os.Exit(1) -> K8s Restart
 ```
 
 ### Why "Shared Fate"?
 
-In a distributed microservices environment, if the Author Service goes down, the Auth Service might survive (partial availability). However, in a Modular Monolith, we prefer **Shared Fate** (Fail Fast).
+In a distributed microservices environment, if the Service A goes down, the Service B might survive (partial availability). However, in a Modular Monolith, we prefer **Shared Fate** (Fail Fast).
 
 If one module is unhealthy, the process state might be corrupt or resources might be leaking. It is safer to crash the entire pod and let the infrastructure restart a fresh instance than to leave the monolith in a "zombie" state where half the modules are working and half are dead.
 
@@ -626,7 +628,7 @@ See the file [failure-modes.md](failure-modes.md).
 
 ### Key Takeaways
 
-1. **Go Workspaces + Bridge Modules = Strong Boundaries + Flexibility**
+1. **Go Workspaces + Contract Definitions = Strong Boundaries + Flexibility**
    - Compiler-enforced service isolation
    - In-process performance when services are co-located
    - Network protocols when services are distributed
@@ -638,7 +640,7 @@ See the file [failure-modes.md](failure-modes.md).
    - Flexible adapters for external systems
 
 3. **Protobuf is Optional**
-   - Start with Go interfaces in bridges
+   - Start with Go interfaces in contract definitions
    - Add protobuf when you need network transport
    - Gradual adoption as needed
 
@@ -663,11 +665,11 @@ Traditional Monolith
         ↓
   (Extract services)
         ↓
-Go Workspaces + Bridges (in-process)
+Go Workspaces + Contract Definitions (in-process)
         ↓
   (Add Connect when needed)
         ↓
-Go Workspaces + Bridges (network)
+Go Workspaces + Contract Definitions (network)
         ↓
   (Deploy separately)
         ↓

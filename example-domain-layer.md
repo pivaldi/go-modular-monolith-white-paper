@@ -1,4 +1,4 @@
-File `services/authsvc/internal/domain/user/user.go`
+File `services/servicebsvc/internal/domain/user/user.go`
 
 ```go
 package user
@@ -60,7 +60,7 @@ func (u *User) CreatedAt() time.Time { return u.createdAt }
 func (u *User) UpdatedAt() time.Time { return u.updatedAt }
 ```
 
-File `/authsvc/internal/domain/user/email.go`:
+File `/servicebsvc/internal/domain/user/email.go`:
 
 ```go
 package user
@@ -102,7 +102,7 @@ func (e Email) Equals(other Email) bool {
 }
 ```
 
-File `services/authsvc/internal/domain/user/repository.go`
+File `services/servicebsvc/internal/domain/user/repository.go`
 
 ```go
 package user

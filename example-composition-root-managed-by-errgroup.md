@@ -1,6 +1,6 @@
 # Composition Root: Direct Explicit Wiring with errgroup Supervisor
 
-The monolith's `main.go` performs direct explicit wiring with clear initialization order. This shows the **Pure Bridge Pattern** with truly independent modules.
+The monolith's `main.go` performs direct explicit wiring with clear initialization order. This shows the **Pure Contract Definition Pattern** with truly independent modules.
 
 ## The Complete main.go
 
@@ -20,19 +20,19 @@ import (
 
     "golang.org/x/sync/errgroup"
 
-    // Bridge modules (public contracts)
-    bridgeauthor "github.com/example/service-manager/bridge/authorsvc"
+    // Contract definition modules (public contracts)
+    serviceasvc "github.com/example/service-manager/contracts/definitions/serviceasvc"
 
     // Service config packages
-    authorconfig "github.com/example/service-manager/services/authorsvc/config"
-    authconfig "github.com/example/service-manager/services/authsvc/config"
+    serviceaconfig "github.com/example/service-manager/services/serviceasvc/config"
+    servicebconfig "github.com/example/service-manager/services/servicebsvc/config"
 
     // Service adapters
-    authoradapters "github.com/example/service-manager/services/authorsvc/internal/adapters/inbound/bridge"
-    authorhttp "github.com/example/service-manager/services/authorsvc/internal/adapters/inbound/http"
+    serviceaadapters "github.com/example/service-manager/services/serviceasvc/internal/adapters/inbound/contracts"
+    serviceahttp "github.com/example/service-manager/services/serviceasvc/internal/adapters/inbound/http"
 
-    authsvc "github.com/example/service-manager/services/authsvc"
-    authhttp "github.com/example/service-manager/services/authsvc/internal/adapters/inbound/http"
+    servicebsvc "github.com/example/service-manager/services/servicebsvc"
+    servicebhttp "github.com/example/service-manager/services/servicebsvc/internal/adapters/inbound/http"
 )
 
 func main() {
@@ -48,12 +48,12 @@ func main() {
     // Each service defines HOW to load its config (Embedded FS + Env Override)
     // main.go decides WHEN to load it
 
-    authorCfg, err := authorconfig.Load()
+    authorCfg, err := serviceaconfig.Load()
     if err != nil {
         log.Fatalf("Failed to load author service config: %v", err)
     }
 
-    authCfg, err := authconfig.Load()
+    authCfg, err := servicebconfig.Load()
     if err != nil {
         log.Fatalf("Failed to load auth service config: %v", err)
     }
@@ -62,27 +62,27 @@ func main() {
     // 3. Wiring Phase (Direct Explicit Dependency Injection)
     // ============================================================
 
-    // A. Initialize Provider Service (authorsvc)
+    // A. Initialize Provider Service (serviceasvc)
     //    Creates InprocServer in service internal adapters
-    //    Returns: bridgeauthor.AuthorService interface
-    authorServer := authoradapters.NewInprocServer(
+    //    Returns: serviceasvc.ServiceAService interface
+    authorServer := serviceaadapters.NewInprocServer(
         authorCfg.DB,
         authorCfg.Logger,
     )
 
     // Create HTTP handler for author service
-    authorHTTPHandler := authorhttp.NewHandler(authorCfg)
+    authorHTTPHandler := serviceahttp.NewHandler(authorCfg)
 
-    // B. Wrap Provider with Bridge Client
-    //    Lives in bridge module, accepts AuthorService interface
-    authorClient := bridgeauthor.NewInprocClient(authorServer)
+    // B. Wrap Provider with Contract Definition Client
+    //    Lives in contract definition module, accepts ServiceAService interface
+    authorClient := serviceasvc.NewInprocClient(authorServer)
 
-    // C. Initialize Consumer Service (authsvc)
-    //    Accepts the bridge client as a dependency
-    authService := authsvc.New(authCfg, authorClient)
+    // C. Initialize Consumer Service (servicebsvc)
+    //    Accepts the contract client as a dependency
+    authService := servicebsvc.New(authCfg, authorClient)
 
     // Create HTTP handler for auth service
-    authHTTPHandler := authhttp.NewHandler(authCfg, authService)
+    authHTTPHandler := servicebhttp.NewHandler(authCfg, authService)
 
     // ============================================================
     // 4. Execution Phase (The Supervisor - Shared Fate)
@@ -92,9 +92,9 @@ func main() {
 
     g, gCtx := errgroup.WithContext(ctx)
 
-    // --- Start Author Service HTTP Server ---
+    // --- Start Service A HTTP Server ---
     g.Go(func() error {
-        log.Printf("Starting Author Service on %s", authorCfg.HTTPPort)
+        log.Printf("Starting Service A on %s", authorCfg.HTTPPort)
         server := &http.Server{
             Addr:    authorCfg.HTTPPort,
             Handler: authorHTTPHandler,
@@ -103,11 +103,11 @@ func main() {
         // Graceful shutdown watcher
         go func() {
             <-gCtx.Done()
-            log.Println("Shutting down Author Service...")
+            log.Println("Shutting down Service A...")
             shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
             defer cancel()
             if err := server.Shutdown(shutdownCtx); err != nil {
-                log.Printf("Author Service shutdown error: %v", err)
+                log.Printf("Service A shutdown error: %v", err)
             }
         }()
 
@@ -117,9 +117,9 @@ func main() {
         return nil
     })
 
-    // --- Start Auth Service HTTP Server ---
+    // --- Start Service B HTTP Server ---
     g.Go(func() error {
-        log.Printf("Starting Auth Service on %s", authCfg.HTTPPort)
+        log.Printf("Starting Service B on %s", authCfg.HTTPPort)
         server := &http.Server{
             Addr:    authCfg.HTTPPort,
             Handler: authHTTPHandler,
@@ -127,11 +127,11 @@ func main() {
 
         go func() {
             <-gCtx.Done()
-            log.Println("Shutting down Auth Service...")
+            log.Println("Shutting down Service B...")
             shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
             defer cancel()
             if err := server.Shutdown(shutdownCtx); err != nil {
-                log.Printf("Auth Service shutdown error: %v", err)
+                log.Printf("Service B shutdown error: %v", err)
             }
         }()
 
@@ -161,7 +161,7 @@ func main() {
 
 Each service implements its own config loader following this pattern:
 
-**File:** `services/authorsvc/config/config.go`
+**File:** `services/serviceasvc/config/config.go`
 
 ```go
 package config
@@ -210,16 +210,16 @@ func Load() (*Config, error) {
     }
 
     // 2. Apply environment variable overrides
-    if port := os.Getenv("AUTHORSVC_HTTP_PORT"); port != "" {
+    if port := os.Getenv("SERVICEASVC_HTTP_PORT"); port != "" {
         cfg.HTTPPort = port
     }
-    if host := os.Getenv("AUTHORSVC_DB_HOST"); host != "" {
+    if host := os.Getenv("SERVICEASVC_DB_HOST"); host != "" {
         cfg.DB.Host = host
     }
-    if dbName := os.Getenv("AUTHORSVC_DB_NAME"); dbName != "" {
+    if dbName := os.Getenv("SERVICEASVC_DB_NAME"); dbName != "" {
         cfg.DB.Database = dbName
     }
-    if password := os.Getenv("AUTHORSVC_DB_PASSWORD"); password != "" {
+    if password := os.Getenv("SERVICEASVC_DB_PASSWORD"); password != "" {
         cfg.DB.Password = password
     }
 
@@ -227,14 +227,14 @@ func Load() (*Config, error) {
 }
 ```
 
-**File:** `services/authorsvc/config/defaults.yaml`
+**File:** `services/serviceasvc/config/defaults.yaml`
 
 ```yaml
 http_port: ":8081"
 db:
   host: "localhost"
   port: 5432
-  database: "authorsvc"
+  database: "serviceasvc"
   user: "postgres"
   password: "postgres"
 logger:
@@ -251,9 +251,9 @@ logger:
 **No registry pattern**, **no dependency injection framework** - just explicit initialization in main.go:
 
 ```go
-authorServer := authoradapters.NewInprocServer(...)  // Step 1: Create server
-authorClient := bridgeauthor.NewInprocClient(authorServer)  // Step 2: Wrap in client
-authService := authsvc.New(authCfg, authorClient)  // Step 3: Inject into consumer
+authorServer := serviceaadapters.NewInprocServer(...)  // Step 1: Create server
+authorClient := serviceasvc.NewInprocClient(authorServer)  // Step 2: Wrap in client
+authService := servicebsvc.New(authCfg, authorClient)  // Step 3: Inject into consumer
 ```
 
 **Benefits:**
@@ -279,8 +279,8 @@ Each service owns its configuration:
 Everything operates on interfaces, not concrete types:
 
 ```go
-authorServer := authoradapters.NewInprocServer(...)  // Returns AuthorService interface
-authorClient := bridgeauthor.NewInprocClient(authorServer)  // Accepts AuthorService interface
+authorServer := serviceaadapters.NewInprocServer(...)  // Returns ServiceAService interface
+authorClient := serviceasvc.NewInprocClient(authorServer)  // Accepts ServiceAService interface
 ```
 
 **Benefits:**
@@ -335,16 +335,16 @@ go func() {
 graph TD
     Main[main.go]
 
-    Main -->|1. Load Config| AuthorCfg[authorconfig.Load]
-    Main -->|2. Load Config| AuthCfg[authconfig.Load]
+    Main -->|1. Load Config| AuthorCfg[serviceaconfig.Load]
+    Main -->|2. Load Config| AuthCfg[servicebconfig.Load]
 
-    Main -->|3. Create Server| AuthorServer[authoradapters.NewInprocServer]
-    AuthorServer -->|returns| AuthorIface[AuthorService interface]
+    Main -->|3. Create Server| AuthorServer[serviceaadapters.NewInprocServer]
+    AuthorServer -->|returns| AuthorIface[ServiceAService interface]
 
-    Main -->|4. Wrap in Client| AuthorClient[bridgeauthor.NewInprocClient]
+    Main -->|4. Wrap in Client| AuthorClient[serviceasvc.NewInprocClient]
     AuthorIface -->|passed to| AuthorClient
 
-    Main -->|5. Initialize Service| AuthService[authsvc.New]
+    Main -->|5. Initialize Service| AuthService[servicebsvc.New]
     AuthorClient -->|injected into| AuthService
 
     Main -->|6. errgroup| Supervisor[g.Go for each service]
@@ -363,9 +363,9 @@ After implementing this pattern, verify:
 - [ ] No registry struct or singleton pattern
 - [ ] Initialization order is explicit in main.go
 - [ ] Each service has its own `config.Load()` implementation
-- [ ] InprocServer is in `services/*/internal/adapters/inbound/bridge/`
-- [ ] InprocClient is in `bridge/*/`
+- [ ] InprocServer is in `services/*/internal/adapters/inbound/contracts/definitions/`
+- [ ] InprocClient is in `contracts/definitions/*/`
 - [ ] All types are interface-based (no `*InprocServer` concrete types)
 - [ ] errgroup manages service lifecycle (Shared Fate)
 - [ ] Graceful shutdown handlers for all HTTP servers
-- [ ] No `import "services/*/internal"` from other services or bridges
+- [ ] No `import "services/*/internal"` from other services

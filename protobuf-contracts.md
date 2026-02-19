@@ -12,37 +12,37 @@ Protobuf contracts are **optional** in this architecture. Use them when you need
 
 **Skip protobuf when:**
 - Services always run in the same process
-- You want simpler Go interfaces (use bridge DTOs)
+- You want simpler Go interfaces (use contract DTOs)
 - Prototyping or early development
 
-## Hybrid Approach: Bridge DTOs Now, Protobuf Later
+## Hybrid Approach: Contract DTOs Now, Protobuf Later
 
-**Option 1: Bridge with Go DTOs (Simple)**
+**Option 1: Contract Definition with Go DTOs (Simple)**
 
 ```go
-// bridge/authorsvc/dto.go
-type AuthorDTO struct {
+// contracts/definitions/serviceasvc/dto.go
+type ServiceADTO struct {
     ID   string
     Name string
     Bio  string
 }
 ```
 
-**Option 2: Bridge with Protobuf DTOs (Network-Ready)**
+**Option 2: Contract Definition with Protobuf DTOs (Network-Ready)**
 
 ```go
-// bridge/authorsvc/dto.go
-import authorv1 "github.com/example/service-manager/contracts/go/author/v1"
+// contracts/definitions/serviceasvc/dto.go
+import serviceasvcv1 "github.com/example/service-manager/contracts/gen/serviceasvc/v1"
 
 // Use protobuf-generated types
-type AuthorDTO = authorv1.Author
+type ServiceADTO = serviceasvcv1.ServiceA
 ```
 
 **You can start with Option 1 and migrate to Option 2 when needed.**
 
 ## Understanding Network Transport with Connect
 
-Before implementing network transport, let's understand how it parallels the in-process bridge pattern and how to swap between them.
+Before implementing network transport, let's understand how it parallels the in-process contract-based architecture and how to swap between them.
 
 **What Connect Provides:**
 
@@ -54,7 +54,7 @@ Before implementing network transport, let's understand how it parallels the in-
 **IN-PROCESS:**
 ```mermaid
 graph TB
-    subgraph consumer["Consumer Service (authsvc)"]
+    subgraph consumer["Consumer Service (servicebsvc)"]
         app1["Application"]
         port1["Port Interface"]
         adapter1["Inproc Adapter"]
@@ -63,14 +63,14 @@ graph TB
         port1 --> adapter1
     end
 
-    subgraph bridge["Bridge Module (bridge/authorsvc)"]
+    subgraph contracts["Contract Definition (contracts/definitions/serviceasvc)"]
         inproc_client["InprocClient"]
         inproc_server["InprocServer"]
 
         inproc_client --> inproc_server
     end
 
-    subgraph provider["Provider Service (authorsvc)"]
+    subgraph provider["Provider Service (serviceasvc)"]
         app_layer["Application Layer"]
     end
 
@@ -78,14 +78,14 @@ graph TB
     inproc_server -.->|"function call<br/>(direct call)"| app_layer
 
     style consumer fill:#e1f5ff
-    style bridge fill:#fff4e1
+    style contracts fill:#fff4e1
     style provider fill:#ffe1e1
 ```
 
 **NETWORK:**
 ```mermaid
 graph TB
-    subgraph consumer["Consumer Service (authsvc)"]
+    subgraph consumer["Consumer Service (servicebsvc)"]
         app2["Application"]
         port2["Port Interface"]
         adapter2["Connect Adapter"]
@@ -96,7 +96,7 @@ graph TB
 
     network["Network<br/>(HTTP/2)"]
 
-    subgraph provider2["Provider Service (authorsvc)"]
+    subgraph provider2["Provider Service (serviceasvc)"]
         handler["Connect Handler<br/>(HTTP endpoint)"]
         app_layer2["Application Layer"]
 
@@ -116,44 +116,44 @@ graph TB
 **The Swap Mechanism:**
 
 ```go
-// services/authsvc/cmd/authsvc/main.go
+// services/servicebsvc/cmd/servicebsvc/main.go
 package main
 
 import (
     "net/http"
     "time"
 
-    "github.com/example/service-manager/bridge/authorsvc"
-    "github.com/example/service-manager/services/authsvc/internal/adapters/outbound/authorclient/inproc"
-    "github.com/example/service-manager/services/authsvc/internal/adapters/outbound/authorclient/connect"
-    "github.com/example/service-manager/services/authsvc/internal/application/ports"
-    "github.com/example/service-manager/services/authsvc/internal/infra"
+    "github.com/example/service-manager/contracts/definitions/serviceasvc"
+    "github.com/example/service-manager/services/servicebsvc/internal/adapters/outbound/serviceaclient/inproc"
+    "github.com/example/service-manager/services/servicebsvc/internal/adapters/outbound/serviceaclient/connect"
+    "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
+    "github.com/example/service-manager/services/servicebsvc/internal/infra"
 )
 
 func main() {
     cfg := infra.LoadConfig()
 
     // SWAP POINT: Choose adapter based on configuration
-    var authorClient ports.AuthorClient
+    var serviceaClient ports.ServiceAClient
 
-    if cfg.UseInProcessBridge {
+    if cfg.UseInProcessContracts {
         // ===== OPTION 1: In-Process =====
-        // Get the AuthorService InprocServer from authorsvc
+        // Get the ServiceAService InprocServer from serviceasvc
         // (In practice, this is a singleton shared across services in same process)
-        authorServer := getAuthorServiceInprocServer()
+        serviceaServer := getServiceAServiceInprocServer()
 
-        // Wrap in bridge client
-        authorBridge := authorsvc.NewInprocClient(authorServer)
+        // Wrap in contract client
+        serviceaContract := serviceasvc.NewInprocClient(serviceaServer)
 
         // Wrap in port adapter
-        authorClient = inproc.NewClient(authorBridge)
+        serviceaClient = inproc.NewClient(serviceaContract)
         // Performance: <1μs, zero serialization
 
     } else {
         // ===== OPTION 2: Network =====
         // Create HTTP client to remote service
-        authorClient = connect.NewClient(
-            cfg.AuthorServiceURL, // e.g., "https://author-service:8080"
+        serviceaClient = connect.NewClient(
+            cfg.ServiceAServiceURL, // e.g., "https://servicea-service:8080"
             &http.Client{
                 Timeout: 5 * time.Second,
             },
@@ -162,7 +162,7 @@ func main() {
     }
 
     // Rest of wiring is IDENTICAL - application doesn't know the difference
-    deps := infra.InitializeDependencies(cfg, authorClient)
+    deps := infra.InitializeDependencies(cfg, serviceaClient)
 
     // Start server...
 }
@@ -172,17 +172,17 @@ func main() {
 
 | Aspect | In-Process | Network |
 |--------|-----------|---------|
-| **Consumer Adapter** | `inproc.NewClient(bridge)` | `connect.NewClient(url, http)` |
+| **Consumer Adapter** | `inproc.NewClient(contract)` | `connect.NewClient(url, http)` |
 | **Transport** | Function call | HTTP/2 |
 | **Serialization** | None (shared memory) | Protobuf |
 | **Latency** | <1μs | 1-5ms |
-| **Dependencies** | Bridge module | Contracts module |
+| **Dependencies** | Contract definition | Contracts module |
 | **Provider Needs** | Nothing (shares process) | Connect Handler + HTTP server |
 
 **What Stays the Same:**
 
 - Application layer code (commands, queries, domain)
-- Port interface definition (`ports.AuthorClient`)
+- Port interface definition (`ports.ServiceAClient`)
 - Business logic and tests
 - Domain models
 - Port interface consumers
@@ -191,7 +191,7 @@ func main() {
 
 ```
 Step 1: Start with In-Process
-├─ Use bridge with InprocServer/Client
+├─ Use contract definitions with InprocServer/Client
 ├─ No protobuf needed
 ├─ Simple Go interfaces
 └─ Fast development iteration
@@ -199,7 +199,7 @@ Step 1: Start with In-Process
 Step 2: Add Protobuf (when ready)
 ├─ Define .proto contract
 ├─ Generate code (buf generate)
-├─ Bridge DTOs can use protobuf types
+├─ Contract DTOs can use protobuf types
 └─ Still using in-process transport
 
 Step 3: Implement Connect Handlers
@@ -215,7 +215,7 @@ Step 4: Implement Connect Client
 └─ Can still run in same process
 
 Step 5: Deploy Separately
-├─ Configure with UseInProcessBridge=false
+├─ Configure with UseInProcessContracts=false
 ├─ Point to remote service URL
 ├─ Zero application code changes
 └─ Gradually split services
@@ -225,21 +225,21 @@ Step 5: Deploy Separately
 
 ```yaml
 # Development: config/dev.yaml
-use_in_process_bridge: true
-author_service_url: ""  # Not needed
+use_in_process_contracts: true
+servicea_service_url: ""  # Not needed
 
 # Staging: config/staging.yaml
-use_in_process_bridge: false
-author_service_url: "http://author-service:8080"
+use_in_process_contracts: false
+servicea_service_url: "http://servicea-service:8080"
 
 # Production: config/prod.yaml
-use_in_process_bridge: false
-author_service_url: "https://author-service.internal:8080"
+use_in_process_contracts: false
+servicea_service_url: "https://servicea-service.internal:8080"
 ```
 
 **When to Use Each:**
 
-**In-Process (via Bridge):**
+**In-Process (via Contract Definition):**
 - Local development
 - Integration tests
 - Services that always deploy together
@@ -262,24 +262,24 @@ contracts/                  # One Go module (go.mod here)
 ├── buf.gen.yaml            # Generation config — run `buf generate` from here
 ├── proto/                  # CLEAN: .proto schemas only
 │   ├── buf.yaml            # Buf module config (proto root)
-│   └── author/v1/
-│       └── author.proto
-├── go/                     # DIRTY: generated Go code (do not edit)
-│   └── author/v1/
-│       ├── author.pb.go
-│       └── authorconnect/
-│           └── author.connect.go
-└── ts/                     # DIRTY: generated TypeScript code (do not edit)
-    ├── package.json        # npm package: @example/contracts
-    └── author/v1/
-        ├── author_pb.ts
-        └── author_connect.ts
+│   └── serviceasvc/v1/
+│       └── serviceasvc.proto
+├── gen/                    # DIRTY: generated code (do not edit)
+│   ├── serviceasvc/v1/
+│   │   ├── serviceasvc.pb.go
+│   │   └── serviceasvcconnect/
+│   │       └── serviceasvc.connect.go
+│   └── ts/                 # Generated TypeScript code
+│       ├── package.json    # npm package: @example/contracts
+│       └── serviceasvc/v1/
+│           ├── serviceasvc_pb.ts
+│           └── serviceasvc_connect.ts
 ```
 
 **Why one module, not two:**
 
 - **Atomic versioning**: the schema and its generated code are tagged together. You cannot accidentally have `v1.0` of the proto but `v0.9` of the generated stubs.
-- **Clear imports**: `import "…/contracts/go/author/v1"` is unambiguous — it explicitly names the language artifact. Generic names like `gen/` give no signal.
+- **Clear imports**: `import "…/contracts/gen/serviceasvc/v1"` is unambiguous — it explicitly names the language artifact and service.
 - **No pollution**: `.proto` files live in `contracts/proto`, untouched by generated clutter.
 - **Simple workspace**: one entry in `go.work` instead of two synchronized modules.
 
@@ -299,7 +299,7 @@ This architecture uses three separate buf configuration files:
 
 - `buf.gen.yaml` lives inside `contracts/` (not at the repo root)
 - Run `buf generate` from the `contracts/` directory
-- All `out:` paths in `buf.gen.yaml` are relative to `contracts/`
+- All `out:` paths in `buf.gen.yaml` are relative to `contracts/` (typically `gen/` for Go code, `gen/ts/` for TypeScript)
 - The repo-root `buf.yaml` does NOT drive generation — it only enables workspace-wide lint/breaking checks in CI
 
 **`buf.yaml` — repo root (workspace config)**
@@ -344,19 +344,19 @@ inputs:
 plugins:
   # Go: protobuf types
   - remote: buf.build/protocolbuffers/go    # 'remote:' for BSR plugins
-    out: go                                 # → contracts/go/
+    out: gen                                # → contracts/gen/
     opt: paths=source_relative
   # Go: Connect RPC stubs
   - remote: buf.build/connectrpc/go
-    out: go                                 # → contracts/go/
+    out: gen                                # → contracts/gen/
     opt: paths=source_relative
   # TypeScript: protobuf types (Protobuf-ES)
   - remote: buf.build/bufbuild/es
-    out: ts                                 # → contracts/ts/
+    out: gen/ts                             # → contracts/gen/ts/
     opt: target=ts
   # TypeScript: Connect RPC stubs
   - remote: buf.build/connectrpc/es
-    out: ts                                 # → contracts/ts/
+    out: gen/ts                             # → contracts/gen/ts/
     opt: target=ts
 ```
 
@@ -394,7 +394,7 @@ buf generate
 
 ### TypeScript package
 
-The generated TypeScript lives in `contracts/ts/` with its own `package.json`, making it an independently publishable npm package:
+The generated TypeScript lives in `contracts/gen/ts/` with its own `package.json`, making it an independently publishable npm package:
 
 ```json
 {
@@ -402,7 +402,7 @@ The generated TypeScript lives in `contracts/ts/` with its own `package.json`, m
   "version": "1.0.0",
   "type": "module",
   "exports": {
-    "./author/v1": "./author/v1/author_pb.ts"
+    "./serviceasvc/v1": "./serviceasvc/v1/serviceasvc_pb.ts"
   }
 }
 ```
@@ -410,8 +410,8 @@ The generated TypeScript lives in `contracts/ts/` with its own `package.json`, m
 Frontend or Node services import from the same versioned contract:
 
 ```typescript
-import { Author, GetAuthorRequest } from "@example/contracts/author/v1";
-import { AuthorService } from "@example/contracts/author/v1/author_connect";
+import { ServiceA, GetServiceARequest } from "@example/contracts/serviceasvc/v1";
+import { ServiceAService } from "@example/contracts/serviceasvc/v1/serviceasvc_connect";
 ```
 
 The Go and TypeScript artifacts are generated from the same `.proto` source in the same `buf generate` run, so they are always in sync.
@@ -425,11 +425,11 @@ See the file [complete-protobuf-workflow.md](complete-protobuf-workflow.md).
 **Adding fields (backward compatible):**
 
 ```protobuf
-message Author {
+message ServiceA {
   string id = 1;
   string name = 2;
   string bio = 3;
-  int32 article_count = 4;  // NEW FIELD - backward compatible
+  int32 item_count = 4;  // NEW FIELD - backward compatible
 }
 ```
 
@@ -438,11 +438,11 @@ message Author {
 ```
 contracts/
 └── proto/
-    └── author/
+    └── serviceasvc/
         ├── v1/
-        │   └── author.proto    # Existing
+        │   └── serviceasvc.proto    # Existing
         └── v2/
-            └── author.proto    # Breaking changes
+            └── serviceasvc.proto    # Breaking changes
 ```
 
 **Check for breaking changes in CI:**

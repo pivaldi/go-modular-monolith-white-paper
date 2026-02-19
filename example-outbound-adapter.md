@@ -1,4 +1,4 @@
-`services/authsvc/internal/adapters/outbound/persistence/postgres/user_repository.go`:
+`services/servicebsvc/internal/adapters/outbound/persistence/postgres/user_repository.go`:
 
 ```go
 package postgres
@@ -8,7 +8,7 @@ import (
     "database/sql"
     "errors"
 
-    "github.com/example/service-manager/services/authsvc/internal/domain/user"
+    "github.com/example/service-manager/services/servicebsvc/internal/domain/user"
 )
 
 type UserRepository struct {
