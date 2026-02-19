@@ -4,14 +4,14 @@ When you're ready to add network transport, follow this workflow.
 
 ## 1. Define Service Contract
 
-**File: `contracts/proto/serviceasvc/v1/serviceasvc.proto`**
+**File: `contracts/proto/servicea/v1/servicea.proto`**
 
 ```protobuf
 syntax = "proto3";
 
-package serviceasvc.v1;
+package servicea.v1;
 
-option go_package = "github.com/example/service-manager/contracts/gen/serviceasvc/v1;serviceasvcv1";
+option go_package = "github.com/example/service-manager/contracts/gen/go/servicea/v1;serviceav1";
 
 service ServiceAService {
   rpc GetServiceA(GetServiceARequest) returns (GetServiceAResponse) {}
@@ -55,12 +55,12 @@ cd contracts
 buf generate
 
 # Generated files (Go):
-# - gen/serviceasvc/v1/serviceasvc.pb.go
-# - gen/serviceasvc/v1/serviceasvcconnect/serviceasvc.connect.go
+# - gen/go/servicea/v1/servicea.pb.go
+# - gen/go/servicea/v1/serviceav1connect/servicea.connect.go
 
 # Generated files (TypeScript, if ts plugins are configured):
-# - gen/ts/serviceasvc/v1/serviceasvc_pb.ts
-# - gen/ts/serviceasvc/v1/serviceasvc_connect.ts
+# - gen/ts/servicea/v1/servicea_pb.ts
+# - gen/ts/servicea/v1/servicea_connect.ts
 ```
 
 ## 3. Implement Connect Handler (Inbound Adapter)
@@ -73,8 +73,8 @@ import (
     "context"
     "connectrpc.com/connect"
 
-    serviceasvcv1 "github.com/example/service-manager/contracts/gen/serviceasvc/v1"
-    "github.com/example/service-manager/contracts/gen/serviceasvc/v1/serviceasvcconnect"
+    serviceav1 "github.com/example/service-manager/contracts/gen/go/servicea/v1"
+    "github.com/example/service-manager/contracts/gen/go/servicea/v1/serviceav1connect"
     "github.com/example/service-manager/services/serviceasvc/internal/application/command"
     "github.com/example/service-manager/services/serviceasvc/internal/application/query"
 )
@@ -95,12 +95,12 @@ func NewServiceAHandler(
 }
 
 // Ensure we implement the interface
-var _ serviceasvcconnect.ServiceAServiceHandler = (*ServiceAHandler)(nil)
+var _ serviceav1connect.ServiceAServiceHandler = (*ServiceAHandler)(nil)
 
 func (h *ServiceAHandler) GetServiceA(
     ctx context.Context,
-    req *connect.Request[serviceasvcv1.GetServiceARequest],
-) (*connect.Response[serviceasvcv1.GetServiceAResponse], error) {
+    req *connect.Request[serviceav1.GetServiceARequest],
+) (*connect.Response[serviceav1.GetServiceAResponse], error) {
     // Call application layer
     result, err := h.getServiceAQuery.Execute(ctx, req.Msg.Id)
     if err != nil {
@@ -108,7 +108,7 @@ func (h *ServiceAHandler) GetServiceA(
     }
 
     // Map to protobuf
-    servicea := &serviceasvcv1.ServiceA{
+    servicea := &serviceav1.ServiceA{
         Id:        result.ID,
         Name:      result.Name,
         Bio:       result.Bio,
@@ -117,7 +117,7 @@ func (h *ServiceAHandler) GetServiceA(
         UpdatedAt: result.UpdatedAt.Unix(),
     }
 
-    return connect.NewResponse(&serviceasvcv1.GetServiceAResponse{
+    return connect.NewResponse(&serviceav1.GetServiceAResponse{
         Servicea: servicea,
     }), nil
 }
@@ -134,13 +134,13 @@ import (
     "net/http"
 
     "connectrpc.com/connect"
-    serviceasvcv1 "github.com/example/service-manager/contracts/gen/serviceasvc/v1"
-    "github.com/example/service-manager/contracts/gen/serviceasvc/v1/serviceasvcconnect"
+    serviceav1 "github.com/example/service-manager/contracts/gen/go/servicea/v1"
+    "github.com/example/service-manager/contracts/gen/go/servicea/v1/serviceav1connect"
     "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
 )
 
 type Client struct {
-    client serviceasvcconnect.ServiceAServiceClient
+    client serviceav1connect.ServiceAServiceClient
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
@@ -148,7 +148,7 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
         httpClient = http.DefaultClient
     }
 
-    client := serviceasvcconnect.NewServiceAServiceClient(
+    client := serviceav1connect.NewServiceAServiceClient(
         httpClient,
         baseURL,
     )
@@ -157,7 +157,7 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 }
 
 func (c *Client) GetServiceA(ctx context.Context, serviceaID string) (*ports.ServiceAInfo, error) {
-    req := connect.NewRequest(&serviceasvcv1.GetServiceARequest{
+    req := connect.NewRequest(&serviceav1.GetServiceARequest{
         Id: serviceaID,
     })
 

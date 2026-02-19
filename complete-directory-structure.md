@@ -49,30 +49,31 @@ service-manager/
 │   │
 │   ├── proto/                # CLEAN: Protobuf schemas only (OPTIONAL - for network transport)
 │   │   ├── buf.yaml          # Buf module config (marks this as the proto root)
-│   │   ├── serviceasvc/v1/
-│   │   │   └── serviceasvc.proto   # Service A protobuf definition
-│   │   └── servicebsvc/v1/
-│   │       └── servicebsvc.proto   # Service B protobuf definition
+│   │   ├── servicea/v1/
+│   │   │   └── servicea.proto   # Service A protobuf definition
+│   │   └── serviceb/v1/
+│   │       └── serviceb.proto   # Service B protobuf definition
 │   │
 │   └── gen/                  # DIRTY: Generated code from protobuf (do not edit manually)
-│       ├── serviceasvc/v1/
-│       │   ├── serviceasvc.pb.go          # Generated protobuf types
-│       │   └── serviceasvcconnect/
-│       │       └── serviceasvc.connect.go # Generated Connect stubs
+│       ├── go/               # Go generated code (language first, then service)
+│       │   ├── servicea/v1/
+│       │   │   ├── servicea.pb.go          # Generated protobuf types
+│       │   │   └── serviceav1connect/
+│       │   │       └── servicea.connect.go # Generated Connect stubs
+│       │   │
+│       │   └── serviceb/v1/
+│       │       ├── serviceb.pb.go          # Generated protobuf types
+│       │       └── servicebv1connect/
+│       │           └── serviceb.connect.go # Generated Connect stubs
 │       │
-│       ├── servicebsvc/v1/
-│       │   ├── servicebsvc.pb.go          # Generated protobuf types
-│       │   └── servicebsvcconnect/
-│       │       └── servicebsvc.connect.go # Generated Connect stubs
-│       │
-│       └── ts/               # Generated TypeScript code
+│       └── ts/               # Generated TypeScript code (language first, then service)
 │           ├── package.json  # npm package: @example/contracts
-│           ├── serviceasvc/v1/
-│           │   ├── serviceasvc_pb.ts        # Generated protobuf types
-│           │   └── serviceasvc_connect.ts   # Generated Connect stubs
-│           └── servicebsvc/v1/
-│               ├── servicebsvc_pb.ts        # Generated
-│               └── servicebsvc_connect.ts   # Generated
+│           ├── servicea/v1/
+│           │   ├── servicea_pb.ts        # Generated protobuf types
+│           │   └── servicea_connect.ts   # Generated Connect stubs
+│           └── serviceb/v1/
+│               ├── serviceb_pb.ts        # Generated
+│               └── serviceb_connect.ts   # Generated
 │
 ├── services/
 │   │

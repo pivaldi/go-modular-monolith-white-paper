@@ -262,24 +262,25 @@ contracts/                  # One Go module (go.mod here)
 ├── buf.gen.yaml            # Generation config — run `buf generate` from here
 ├── proto/                  # CLEAN: .proto schemas only
 │   ├── buf.yaml            # Buf module config (proto root)
-│   └── serviceasvc/v1/
-│       └── serviceasvc.proto
+│   └── servicea/v1/
+│       └── servicea.proto
 ├── gen/                    # DIRTY: generated code (do not edit)
-│   ├── serviceasvc/v1/
-│   │   ├── serviceasvc.pb.go
-│   │   └── serviceasvcconnect/
-│   │       └── serviceasvc.connect.go
-│   └── ts/                 # Generated TypeScript code
+│   ├── go/                 # Go generated code (language first, then service)
+│   │   └── servicea/v1/
+│   │       ├── servicea.pb.go
+│   │       └── serviceav1connect/
+│   │           └── servicea.connect.go
+│   └── ts/                 # Generated TypeScript code (language first, then service)
 │       ├── package.json    # npm package: @example/contracts
-│       └── serviceasvc/v1/
-│           ├── serviceasvc_pb.ts
-│           └── serviceasvc_connect.ts
+│       └── servicea/v1/
+│           ├── servicea_pb.ts
+│           └── servicea_connect.ts
 ```
 
 **Why one module, not two:**
 
 - **Atomic versioning**: the schema and its generated code are tagged together. You cannot accidentally have `v1.0` of the proto but `v0.9` of the generated stubs.
-- **Clear imports**: `import "…/contracts/gen/serviceasvc/v1"` is unambiguous — it explicitly names the language artifact and service.
+- **Clear imports**: `import "…/contracts/gen/go/serviceasvc/v1"` is unambiguous — it explicitly names the language artifact and service.
 - **No pollution**: `.proto` files live in `contracts/proto`, untouched by generated clutter.
 - **Simple workspace**: one entry in `go.work` instead of two synchronized modules.
 
@@ -299,7 +300,7 @@ This architecture uses three separate buf configuration files:
 
 - `buf.gen.yaml` lives inside `contracts/` (not at the repo root)
 - Run `buf generate` from the `contracts/` directory
-- All `out:` paths in `buf.gen.yaml` are relative to `contracts/` (typically `gen/` for Go code, `gen/ts/` for TypeScript)
+- All `out:` paths in `buf.gen.yaml` are relative to `contracts/` (typically `gen/go/` for Go code, `gen/ts/` for TypeScript)
 - The repo-root `buf.yaml` does NOT drive generation — it only enables workspace-wide lint/breaking checks in CI
 
 **`buf.yaml` — repo root (workspace config)**
@@ -344,11 +345,11 @@ inputs:
 plugins:
   # Go: protobuf types
   - remote: buf.build/protocolbuffers/go    # 'remote:' for BSR plugins
-    out: gen                                # → contracts/gen/
+    out: gen/go                             # → contracts/gen/go/
     opt: paths=source_relative
   # Go: Connect RPC stubs
   - remote: buf.build/connectrpc/go
-    out: gen                                # → contracts/gen/
+    out: gen/go                             # → contracts/gen/go/
     opt: paths=source_relative
   # TypeScript: protobuf types (Protobuf-ES)
   - remote: buf.build/bufbuild/es
@@ -372,10 +373,10 @@ If you have locally installed protoc plugins, use `local:` instead:
 ```yaml
 plugins:
   - local: protoc-gen-go          # must be in $PATH
-    out: go
+    out: gen/go
     opt: paths=source_relative
   - local: protoc-gen-connect-go
-    out: go
+    out: gen/go
     opt: paths=source_relative
 ```
 
@@ -402,7 +403,7 @@ The generated TypeScript lives in `contracts/gen/ts/` with its own `package.json
   "version": "1.0.0",
   "type": "module",
   "exports": {
-    "./serviceasvc/v1": "./serviceasvc/v1/serviceasvc_pb.ts"
+    "./servicea/v1": "./servicea/v1/servicea_pb.ts"
   }
 }
 ```
@@ -410,11 +411,85 @@ The generated TypeScript lives in `contracts/gen/ts/` with its own `package.json
 Frontend or Node services import from the same versioned contract:
 
 ```typescript
-import { ServiceA, GetServiceARequest } from "@example/contracts/serviceasvc/v1";
-import { ServiceAService } from "@example/contracts/serviceasvc/v1/serviceasvc_connect";
+import { ServiceA, GetServiceARequest } from "@example/contracts/servicea/v1";
+import { ServiceAService } from "@example/contracts/servicea/v1/servicea_connect";
 ```
 
 The Go and TypeScript artifacts are generated from the same `.proto` source in the same `buf generate` run, so they are always in sync.
+
+### Service-Specific Generation Configs
+
+**Purpose:** Allow services to generate only their own proto code during development.
+
+For monorepos with multiple services, you can create service-specific generation configs alongside the main `buf.gen.yaml`. This enables faster iteration during single-service development.
+
+**`buf.gen.servicea.yaml` example:**
+```yaml
+# contracts/buf.gen.servicea.yaml
+version: v2
+managed:
+  enabled: false
+inputs:
+  - directory: .
+    paths:
+      - proto/servicea  # Filter to only Service A protos
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: gen/go
+    opt: paths=source_relative
+```
+
+**`buf.gen.serviceb.yaml` example:**
+```yaml
+# contracts/buf.gen.serviceb.yaml
+version: v2
+managed:
+  enabled: false
+inputs:
+  - directory: .
+    paths:
+      - proto/serviceb  # Filter to only Service B protos
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: gen/go
+    opt: paths=source_relative
+```
+
+**When to use:**
+- **`buf.gen.yaml`**: Monolith builds - generates all services at once
+- **`buf.gen.servicea.yaml`**: Service A development - only generates Service A code
+- **`buf.gen.serviceb.yaml`**: Service B development - only generates Service B code
+
+**Benefits:**
+- Faster generation during single-service development
+- Service teams can work independently
+- Reduces build time when only one service's protos changed
+- Clear separation of concerns for CI/CD pipelines
+
+**Example usage in service's mise.toml:**
+```toml
+[tasks.generate]
+description = "Generate code for Service A only"
+run = """
+cd {{vars.CONTRACTS_DIR}}
+buf generate --template buf.gen.servicea.yaml
+"""
+```
+
+**Example CI usage:**
+```bash
+# Full monolith build
+cd contracts && buf generate
+
+# Service-specific build (faster for PR checks)
+cd contracts && buf generate --template buf.gen.servicea.yaml
+```
 
 ## Complete Protobuf Workflow
 

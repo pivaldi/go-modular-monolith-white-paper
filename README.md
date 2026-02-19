@@ -260,20 +260,18 @@ Each service uses clean architecture internally:
 graph TB
     subgraph monorepo["Service Manager (Monorepo)"]
         contracts["contracts/<br/>(proto)<br/><br/>serviceasvc.proto"]
-        bridge["contracts/definitions/<br/>(public)<br/><br/>serviceasvc/<br/>api.go<br/>dto.go<br/>inproc_*.go"]
+        contract_def["contracts/definitions/<br/>(public)<br/><br/>serviceasvc/<br/>api.go<br/>dto.go<br/>inproc_*.go"]
         services["services/<br/>(private)<br/><br/>servicebsvc/<br/>internal/<br/><br/>serviceasvc/<br/>internal/"]
 
-        services -->|uses| bridge
-        bridge -->|generates from| contracts
+        services -->|uses| contract_def
+        contract_def -->|generates from| contracts
 
         workspace["go.work (coordinates all modules)"]
     end
 
     style contracts fill:#e1f5ff
-    style bridge fill:#fff4e1
+    style contract_def fill:#fff4e1
     style services fill:#ffe1e1
-
-    note["Note: 'bridge' refers to the contract interface,<br/>not the architectural pattern"]
 ```
 
 **In-Process:**
