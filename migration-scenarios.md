@@ -11,7 +11,7 @@
    - Map existing code to future services
 
 2. **Extract first service** (2-4 weeks)
-   - Create service module + bridge
+   - Create service module + contract definition
    - Move domain logic to new service
    - Create adapters for dependencies
    - Test thoroughly
@@ -28,14 +28,14 @@
 
 **Migration path:**
 
-1. **Create bridge modules** (1 week)
-   - Extract public APIs to bridge modules
+1. **Create contract definition modules** (1 week)
+   - Extract public APIs to contract definition modules
    - Define interfaces and DTOs
 
 2. **Split into separate Go modules** (1-2 weeks)
    - Create `go.mod` per service
    - Add `go.work` to coordinate
-   - Update imports to use bridges
+   - Update imports to use contract definitions
 
 3. **Verify boundaries** (1 week)
    - Add arch-test tool
@@ -55,13 +55,13 @@
    - Keep separate modules
    - Add `go.work`
 
-2. **Create bridge modules** (1-2 weeks)
+2. **Create contract definition modules** (1-2 weeks)
    - Extract in-process interfaces
    - Implement InprocServer/Client
    - Keep Connect handlers
 
 3. **Switch to in-process** (1 week per service)
-   - Update wiring to use bridges
+   - Update wiring to use contract definitions
    - Test with both transports
    - Remove network calls for co-located services
 
@@ -69,7 +69,7 @@
 
 ### Scenario 4: To Microservices (Distribution)
 
-**Starting point:** This pattern (Go Workspaces + Bridges)
+**Starting point:** This pattern (Go Workspaces + Contract Definitions)
 
 **Migration path:**
 
@@ -80,7 +80,7 @@
 
 2. **Test network transport** (1 week)
    - Switch service A to use Connect client
-   - Keep services B, C on bridges
+   - Keep services B, C on contract definitions
    - Verify functionality
 
 3. **Deploy separately** (1 week per service)

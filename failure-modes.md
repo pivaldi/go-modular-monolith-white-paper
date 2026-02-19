@@ -2,23 +2,23 @@
 
 Even with a well-designed architecture, common anti-patterns can undermine its benefits. Recognize and avoid these failure modes:
 
-## Bridge Bloat
+## Contract Definition Bloat
 
-**Problem:** Bridge modules accumulate business logic, validation, or utilities instead of staying pure interfaces.
+**Problem:** Contract definition modules accumulate business logic, validation, or utilities instead of staying pure interfaces.
 
 **Symptoms:**
-- Bridge DTOs contain validation logic
-- Helper functions performing calculations in bridge package
-- Bridge modules importing external dependencies (databases, HTTP clients)
-- Multiple services depending on bridge utilities for shared behavior
+- Contract DTOs contain validation logic
+- Helper functions performing calculations in contract definition package
+- Contract definition modules importing external dependencies (databases, HTTP clients)
+- Multiple services depending on contract definition utilities for shared behavior
 
 **Example:**
 ```go
-// ✗ BAD: Business logic in bridge
-package authorsvc
+// ✗ BAD: Business logic in contract definition
+package serviceasvc
 
-func (dto *AuthorDTO) IsPopular() bool {
-    return dto.FollowerCount > 10000  // Business rule in bridge!
+func (dto *ServiceADTO) IsPopular() bool {
+    return dto.FollowerCount > 10000  // Business rule in contract definition!
 }
 
 func CalculateRating(articles, followers int) float64 {
@@ -27,12 +27,12 @@ func CalculateRating(articles, followers int) float64 {
 ```
 
 **Solution:**
-- Keep bridges as pure data transfer and interface definitions
+- Keep contract definitions as pure data transfer and interface definitions
 - Move validation to domain layer
-- Duplicate simple utilities rather than sharing through bridges
-- If logic is needed in multiple services, it belongs in a shared library, not a bridge
+- Duplicate simple utilities rather than sharing through contract definitions
+- If logic is needed in multiple services, it belongs in a shared library, not a contract definition
 
-**Why it happens:** Teams see bridges as "shared" and use them for convenience, creating coupling.
+**Why it happens:** Teams see contract definitions as "shared" and use them for convenience, creating coupling.
 
 ## Over-Modularization
 
@@ -43,7 +43,7 @@ func CalculateRating(articles, followers int) float64 {
 - Frequent changes requiring updates to multiple services
 - Circular communication patterns (A calls B, B calls A)
 - Services with single responsibilities that could be functions
-- More bridge modules than services
+- More contract definition modules than services
 
 **Example:**
 ```
@@ -109,49 +109,49 @@ func CreateArticle(ctx context.Context, req CreateArticleRequest) error {
 ```
 
 **Solution:**
-- Keep services in-process (using bridges) until you have a clear reason to separate
+- Keep services in-process (using contract definitions) until you have a clear reason to separate
 - Understand transactional boundaries before extracting
 - Use architecture tests to enforce boundaries without deploying separately
 - Extract only when you need independent scaling, deployment, or team ownership
 
 **Why it happens:** Pressure to "do microservices," resume-driven development, misunderstanding that boundaries ≠ deployment.
 
-## Bridge-Internal Confusion
+## Contract-Definition-Internal Confusion
 
-**Problem:** Teams confuse when to use bridge interfaces vs. internal application ports.
+**Problem:** Teams confuse when to use contract interfaces vs. internal application ports.
 
 **Symptoms:**
-- Application layer directly importing bridge modules instead of using adapters
-- Port interfaces duplicating bridge interfaces exactly
+- Application layer directly importing contract definition modules instead of using adapters
+- Port interfaces duplicating contract interfaces exactly
 - Confusion about "which interface to use"
-- Tight coupling to bridge DTOs in domain layer
+- Tight coupling to contract DTOs in domain layer
 
 **Example:**
 ```go
-// ✗ BAD: Application layer directly using bridge
+// ✗ BAD: Application layer directly using contract definition
 package command
 
 import (
-    "github.com/.../bridge/authorsvc"  // Wrong layer!
+    "github.com/.../contracts/definitions/serviceasvc"  // Wrong layer!
 )
 
 type CreateArticleCommand struct {
-    authorService authorsvc.AuthorService  // Directly coupled to bridge
+    authorService serviceasvc.AuthorService  // Directly coupled to contract definition
 }
 ```
 
 **Solution:**
-- **Bridge** = Service-to-service boundary (external API)
+- **Contract definition** = Service-to-service boundary (external API)
 - **Port** = Application-to-adapter boundary (internal API)
-- Application layer only knows about ports, never about bridges
-- Adapters implement ports and may use bridges internally
+- Application layer only knows about ports, never about contract definitions
+- Adapters implement ports and may use contract definitions internally
 
 **Correct flow:**
 ```
-Application -> Port (owns) -> Adapter (implements) -> Bridge (uses) -> Other Service
+Application -> Port (owns) -> Adapter (implements) -> Contract definition (uses) -> Other Service
 ```
 
-**Why it happens:** Misunderstanding hexagonal architecture, treating bridges as "just another dependency."
+**Why it happens:** Misunderstanding hexagonal architecture, treating contract definitions as "just another dependency."
 
 ## Ignoring the Compiler
 
@@ -176,7 +176,7 @@ func GetInternalState(service interface{}) map[string]interface{} {
 **Solution:**
 - If the compiler prevents it, that's the architecture working correctly
 - Redesign the boundary rather than bypassing it
-- Make internal APIs public through bridge if truly needed
+- Make internal APIs public through contract definition if truly needed
 - Trust that boundaries prevent coupling for good reason
 
 **Why it happens:** Impatience, viewing boundaries as obstacles rather than design constraints.
@@ -189,7 +189,7 @@ func GetInternalState(service interface{}) map[string]interface{} {
 - Service boundaries erode over time
 - "Just this once" cross-service imports
 - Domain layer importing infrastructure "temporarily"
-- Bridge modules growing dependencies
+- Contract definition modules growing dependencies
 - Discovered during code review instead of CI
 
 **Solution:**

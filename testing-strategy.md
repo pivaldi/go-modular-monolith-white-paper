@@ -19,7 +19,7 @@ Test at multiple levels to ensure correctness and maintainability.
 **Focus:** Business logic in isolation
 
 ```go
-// services/authsvc/internal/domain/user/user_test.go
+// services/servicebsvc/internal/domain/user/user_test.go
 func TestUser_ChangePassword(t *testing.T) {
     u := user.NewUser("user-123",
         user.MustNewEmail("user@example.com"),
@@ -45,22 +45,22 @@ func TestUser_ChangePassword(t *testing.T) {
 **Focus:** Orchestration logic with mocked ports
 
 ```go
-// services/authsvc/internal/application/command/login_test.go
+// services/servicebsvc/internal/application/command/login_test.go
 func TestLoginCommand_Execute(t *testing.T) {
     // Setup mocks
     userRepo := mocks.NewUserRepository(t)
     sessionRepo := mocks.NewSessionRepository(t)
-    authorClient := mocks.NewAuthorClient(t)
+    serviceaClient := mocks.NewServiceAClient(t)
 
     // Mock expectations
     userRepo.On("FindByEmail", ctx, testEmail).Return(testUser, nil)
     sessionRepo.On("Save", ctx, mock.Anything).Return(nil)
-    authorClient.On("GetAuthor", ctx, "user-123").Return(&ports.AuthorInfo{
+    serviceaClient.On("GetServiceA", ctx, "user-123").Return(&ports.ServiceAInfo{
         Name: "John Doe",
     }, nil)
 
     // Execute
-    cmd := command.NewLoginCommand(userRepo, sessionRepo, authorClient, logger)
+    cmd := command.NewLoginCommand(userRepo, sessionRepo, serviceaClient, logger)
     result, err := cmd.Execute(ctx, command.LoginInput{
         Email:    "user@example.com",
         Password: "password123",
@@ -69,7 +69,7 @@ func TestLoginCommand_Execute(t *testing.T) {
     // Assert
     require.NoError(t, err)
     assert.NotEmpty(t, result.Token)
-    assert.Equal(t, "John Doe", result.AuthorName)
+    assert.Equal(t, "John Doe", result.ServiceAName)
 
     userRepo.AssertExpectations(t)
 }
@@ -86,7 +86,7 @@ func TestLoginCommand_Execute(t *testing.T) {
 **Focus:** Adapters with real external systems
 
 ```go
-// services/authsvc/internal/adapters/outbound/persistence/postgres/user_repository_test.go
+// services/servicebsvc/internal/adapters/outbound/persistence/postgres/user_repository_test.go
 func TestUserRepository_Save(t *testing.T) {
     if testing.Short() {
         t.Skip("Skipping integration test")
@@ -116,46 +116,46 @@ func TestUserRepository_Save(t *testing.T) {
 - Tests adapter implementation
 - Can use test containers
 
-## 4. Contract Tests (Bridge/Service Boundaries)
+## 4. Contract Tests (Contract Definition/Service Boundaries)
 
 **Focus:** Verify that a service correctly implements its own public API contract
 
-**Important:** Contract tests live in the **PROVIDER** service, not the consumer. Each service tests its own implementation of its bridge interface.
+**Important:** Contract tests live in the **PROVIDER** service, not the consumer. Each service tests its own implementation of its contract interface.
 
 ```go
-// services/authorsvc/test/contract/bridge_test.go
-func TestAuthorService_BridgeContract(t *testing.T) {
-    // Setup: Initialize authorsvc with test data
-    // This is authorsvc testing its OWN implementation
-    app := setupTestAuthorService(t)
+// services/serviceasvc/test/contract/contracts_test.go
+func TestServiceAService_ContractImplementation(t *testing.T) {
+    // Setup: Initialize serviceasvc with test data
+    // This is serviceasvc testing its OWN implementation
+    app := setupTestServiceAService(t)
     defer app.Cleanup()
 
-    // Create InprocServer (the bridge implementation authorsvc provides)
-    server := inbound_bridge.NewInprocServer(
-        app.GetAuthorQuery,
-        app.CreateAuthorCommand,
+    // Create InprocServer (the contract implementation serviceasvc provides)
+    server := inbound_contracts.NewInprocServer(
+        app.GetServiceAQuery,
+        app.CreateServiceACommand,
         // ... other dependencies
     )
 
-    // Test that it correctly implements bridge.AuthorService interface
-    author, err := server.GetAuthor(context.Background(), "test-author-123")
+    // Test that it correctly implements serviceasvc.ServiceAService interface
+    servicea, err := server.GetServiceA(context.Background(), "test-servicea-123")
     require.NoError(t, err)
-    assert.Equal(t, "Test Author", author.Name)
+    assert.Equal(t, "Test Service A", servicea.Name)
 
     // Test error contract
-    _, err = server.GetAuthor(context.Background(), "nonexistent")
-    assert.ErrorIs(t, err, bridge_authorsvc.ErrAuthorNotFound)
+    _, err = server.GetServiceA(context.Background(), "nonexistent")
+    assert.ErrorIs(t, err, serviceasvc.ErrServiceANotFound)
 
-    // Test DTO mapping (domain entity → bridge DTO)
-    assert.NotEmpty(t, author.ID)
-    assert.NotEmpty(t, author.CreatedAt)
+    // Test DTO mapping (domain entity → contract DTO)
+    assert.NotEmpty(t, servicea.ID)
+    assert.NotEmpty(t, servicea.CreatedAt)
 }
 ```
 
 **Characteristics:**
-- Tests that the service correctly implements its bridge interface
-- Validates DTO mapping (domain entities → bridge DTOs)
-- Validates error translation (domain errors → bridge errors)
+- Tests that the service correctly implements its contract interface
+- Validates DTO mapping (domain entities → contract DTOs)
+- Validates error translation (domain errors → contract errors)
 - Lives in the PROVIDER service, never in the consumer
 - Consumer never imports provider's implementation
 
@@ -173,14 +173,14 @@ func TestUserRegistrationFlow(t *testing.T) {
     registerResp, err := env.AuthClient.Register(ctx, "user@example.com", "SecurePass123!")
     require.NoError(t, err)
 
-    // Create author profile
-    authorResp, err := env.AuthorClient.CreateAuthor(ctx, "Jane Smith", "Writer")
+    // Create Service A profile
+    serviceaResp, err := env.ServiceAClient.CreateServiceA(ctx, "Jane Smith", "Writer")
     require.NoError(t, err)
 
     // Login
-    loginResp, err := env.AuthClient.Login(ctx, "user@example.com", "SecurePass123!")
+    loginResp, err := env.ServiceBClient.Login(ctx, "user@example.com", "SecurePass123!")
     require.NoError(t, err)
-    assert.Equal(t, "Jane Smith", loginResp.AuthorName)
+    assert.Equal(t, "Jane Smith", loginResp.ServiceAName)
 }
 ```
 
@@ -203,7 +203,7 @@ go test ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 
 # Specific service
-cd services/authsvc
+cd services/serviceasvc
 go test ./...
 
 # Integration tests only

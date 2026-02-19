@@ -8,14 +8,14 @@ This architecture supports two generation strategies:
 
 | Strategy | When to Use | Command | Config File |
 |----------|-------------|---------|-------------|
-| **Service-Specific** | Development, service builds | `buf generate --template buf.gen.author.yaml` | `buf.gen.<service>.yaml` |
+| **Service-Specific** | Development, service builds | `buf generate --template buf.gen.servicea.yaml` | `buf.gen.<service>.yaml` |
 | **Global** | CI, full rebuilds, releasing | `buf generate` | `buf.gen.yaml` |
 
 **Service-Specific Benefits:**
-- ✅ Faster builds (only regenerate what you need)
-- ✅ Language selection (Go-only for backend, TS-only for frontend)
-- ✅ Isolation (changes to other APIs don't affect your build)
-- ✅ Clear dependencies (each service owns its generation config)
+- ✓ Faster builds (only regenerate what you need)
+- ✓ Language selection (Go-only for backend, TS-only for frontend)
+- ✓ Isolation (changes to other APIs don't affect your build)
+- ✓ Clear dependencies (each service owns its generation config)
 
 **When to Use Global:**
 - CI/CD pipelines that build all services
@@ -25,21 +25,21 @@ This architecture supports two generation strategies:
 
 ## 1. Define Service Contract
 
-**File: `contracts/proto/author/v1/author.proto`**
+**File: `contracts/proto/servicea/v1/servicea.proto`**
 
 ```protobuf
 syntax = "proto3";
 
-package author.v1;
+package servicea.v1;
 
-option go_package = "github.com/example/service-manager/contracts/go/author/v1;authorv1";
+option go_package = "github.com/example/service-manager/contracts/gen/go/servicea/v1;serviceav1";
 
-service AuthorService {
-  rpc GetAuthor(GetAuthorRequest) returns (GetAuthorResponse) {}
-  rpc CreateAuthor(CreateAuthorRequest) returns (CreateAuthorResponse) {}
+service ServiceAService {
+  rpc GetServiceA(GetServiceARequest) returns (GetServiceAResponse) {}
+  rpc CreateServiceA(CreateServiceARequest) returns (CreateServiceAResponse) {}
 }
 
-message Author {
+message ServiceA {
   string id = 1;
   string name = 2;
   string bio = 3;
@@ -48,22 +48,22 @@ message Author {
   int64 updated_at = 6;
 }
 
-message GetAuthorRequest {
+message GetServiceARequest {
   string id = 1;
 }
 
-message GetAuthorResponse {
-  Author author = 1;
+message GetServiceAResponse {
+  ServiceA servicea = 1;
 }
 
-message CreateAuthorRequest {
+message CreateServiceARequest {
   string name = 1;
   string bio = 2;
   string website = 3;
 }
 
-message CreateAuthorResponse {
-  Author author = 1;
+message CreateServiceAResponse {
+  ServiceA servicea = 1;
 }
 ```
 
@@ -73,29 +73,31 @@ message CreateAuthorResponse {
 
 For each service, create a `buf.gen.<service>.yaml` in the contracts directory:
 
-**File: `contracts/buf.gen.author.yaml`**
+**File: `contracts/buf.gen.servicea.yaml`**
 
 ```yaml
-# contracts/buf.gen.author.yaml - Generate only Author API
+# contracts/buf.gen.servicea.yaml - Generate only Service A API
 version: v2
 managed:
   enabled: false
 inputs:
-  - directory: proto/author   # Point to author proto directory only
+  - directory: .
+    paths:
+      - proto/servicea  # Filter to only Service A protos
 plugins:
   # Go: protobuf types
   - remote: buf.build/protocolbuffers/go
-    out: go/author            # → contracts/go/author/
+    out: gen/go
     opt: paths=source_relative
   # Go: Connect RPC stubs
   - remote: buf.build/connectrpc/go
-    out: go/author            # → contracts/go/author/
+    out: gen/go
     opt: paths=source_relative
 ```
 
 ### Create Per-Service Buf Module Config (if needed)
 
-**File: `contracts/proto/author/buf.yaml`**
+**File: `contracts/proto/servicea/buf.yaml`**
 
 ```yaml
 version: v2
@@ -113,11 +115,15 @@ Run from the contracts directory using the service-specific template:
 
 ```bash
 cd contracts
-buf generate --template buf.gen.author.yaml
+buf generate --template buf.gen.servicea.yaml
 
-# Generated files (Go only, as configured):
-# - go/author/v1/author.pb.go
-# - go/author/v1/authorv1connect/author.connect.go
+# Generated files (Go):
+# - gen/go/servicea/v1/servicea.pb.go
+# - gen/go/servicea/v1/serviceav1connect/servicea.connect.go
+
+# Generated files (TypeScript, if ts plugins are configured):
+# - gen/ts/servicea/v1/servicea_pb.ts
+# - gen/ts/servicea/v1/servicea_connect.ts
 ```
 
 **Alternative: Global Generation (CI/Full Builds)**
@@ -127,10 +133,10 @@ cd contracts
 buf generate  # Uses buf.gen.yaml, generates ALL APIs
 
 # Generates code for all services in proto/:
-# - go/author/v1/...
-# - go/todo/v1/...
-# - go/user/v1/...
-# Plus TypeScript if configured
+# - gen/go/servicea/v1/...
+# - gen/go/serviceb/v1/...
+# - gen/ts/servicea/v1/...
+# - gen/ts/serviceb/v1/...
 ```
 
 ### Integration with Service Build Tools
@@ -138,68 +144,68 @@ buf generate  # Uses buf.gen.yaml, generates ALL APIs
 Add generation task to your service's `mise.toml`:
 
 ```toml
-# services/authorsvc/mise.toml
+# services/serviceasvc/mise.toml
 [tasks.generate]
-description = "Generate code from protobuf definitions (Author API only)"
+description = "Generate code from protobuf definitions (Service A API only)"
 run = """
 cd ../../contracts
-buf generate --template buf.gen.author.yaml
+buf generate --template buf.gen.servicea.yaml
 """
 
 [tasks.build]
 description = "Build the application binary"
 depends = ["generate"]  # Auto-generate before building
-run = "go build -o bin/authorsvc ./cmd/authorsvc"
+run = "go build -o bin/serviceasvc ./cmd/serviceasvc"
 ```
 
-Now `mise build` will automatically regenerate only the Author API before building.
+Now `mise build` will automatically regenerate only the Service A API before building.
 
 ## 3. Implement Connect Handler (Inbound Adapter)
 
 ```go
-// services/authorsvc/internal/adapters/inbound/connect/handlers/author_handler.go
+// services/serviceasvc/internal/adapters/inbound/connect/handlers/servicea_handler.go
 package handlers
 
 import (
     "context"
     "connectrpc.com/connect"
 
-    authorv1 "github.com/example/service-manager/contracts/go/author/v1"
-    "github.com/example/service-manager/contracts/go/author/v1/authorconnect"
-    "github.com/example/service-manager/services/authorsvc/internal/application/command"
-    "github.com/example/service-manager/services/authorsvc/internal/application/query"
+    serviceav1 "github.com/example/service-manager/contracts/gen/go/servicea/v1"
+    "github.com/example/service-manager/contracts/gen/go/servicea/v1/serviceav1connect"
+    "github.com/example/service-manager/services/serviceasvc/internal/application/command"
+    "github.com/example/service-manager/services/serviceasvc/internal/application/query"
 )
 
-type AuthorHandler struct {
-    getAuthorQuery  *query.GetAuthorQuery
-    createAuthorCmd *command.CreateAuthorCommand
+type ServiceAHandler struct {
+    getServiceAQuery  *query.GetServiceAQuery
+    createServiceACmd *command.CreateServiceACommand
 }
 
-func NewAuthorHandler(
-    getAuthorQuery *query.GetAuthorQuery,
-    createAuthorCmd *command.CreateAuthorCommand,
-) *AuthorHandler {
-    return &AuthorHandler{
-        getAuthorQuery:  getAuthorQuery,
-        createAuthorCmd: createAuthorCmd,
+func NewServiceAHandler(
+    getServiceAQuery *query.GetServiceAQuery,
+    createServiceACmd *command.CreateServiceACommand,
+) *ServiceAHandler {
+    return &ServiceAHandler{
+        getServiceAQuery:  getServiceAQuery,
+        createServiceACmd: createServiceACmd,
     }
 }
 
 // Ensure we implement the interface
-var _ authorconnect.AuthorServiceHandler = (*AuthorHandler)(nil)
+var _ serviceav1connect.ServiceAServiceHandler = (*ServiceAHandler)(nil)
 
-func (h *AuthorHandler) GetAuthor(
+func (h *ServiceAHandler) GetServiceA(
     ctx context.Context,
-    req *connect.Request[authorv1.GetAuthorRequest],
-) (*connect.Response[authorv1.GetAuthorResponse], error) {
+    req *connect.Request[serviceav1.GetServiceARequest],
+) (*connect.Response[serviceav1.GetServiceAResponse], error) {
     // Call application layer
-    result, err := h.getAuthorQuery.Execute(ctx, req.Msg.Id)
+    result, err := h.getServiceAQuery.Execute(ctx, req.Msg.Id)
     if err != nil {
         return nil, connect.NewError(connect.CodeNotFound, err)
     }
 
     // Map to protobuf
-    author := &authorv1.Author{
+    servicea := &serviceav1.ServiceA{
         Id:        result.ID,
         Name:      result.Name,
         Bio:       result.Bio,
@@ -208,8 +214,8 @@ func (h *AuthorHandler) GetAuthor(
         UpdatedAt: result.UpdatedAt.Unix(),
     }
 
-    return connect.NewResponse(&authorv1.GetAuthorResponse{
-        Author: author,
+    return connect.NewResponse(&serviceav1.GetServiceAResponse{
+        Servicea: servicea,
     }), nil
 }
 ```
@@ -217,7 +223,7 @@ func (h *AuthorHandler) GetAuthor(
 ## 4. Create Connect Client (Outbound Adapter)
 
 ```go
-// services/authsvc/internal/adapters/outbound/authorclient/connect/client.go
+// services/servicebsvc/internal/adapters/outbound/serviceaclient/connect/client.go
 package connect
 
 import (
@@ -225,13 +231,13 @@ import (
     "net/http"
 
     "connectrpc.com/connect"
-    authorv1 "github.com/example/service-manager/contracts/go/author/v1"
-    "github.com/example/service-manager/contracts/go/author/v1/authorconnect"
-    "github.com/example/service-manager/services/authsvc/internal/application/ports"
+    serviceav1 "github.com/example/service-manager/contracts/gen/go/servicea/v1"
+    "github.com/example/service-manager/contracts/gen/go/servicea/v1/serviceav1connect"
+    "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
 )
 
 type Client struct {
-    client authorconnect.AuthorServiceClient
+    client serviceav1connect.ServiceAServiceClient
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
@@ -239,7 +245,7 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
         httpClient = http.DefaultClient
     }
 
-    client := authorconnect.NewAuthorServiceClient(
+    client := serviceav1connect.NewServiceAServiceClient(
         httpClient,
         baseURL,
     )
@@ -247,21 +253,21 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
     return &Client{client: client}
 }
 
-func (c *Client) GetAuthor(ctx context.Context, authorID string) (*ports.AuthorInfo, error) {
-    req := connect.NewRequest(&authorv1.GetAuthorRequest{
-        Id: authorID,
+func (c *Client) GetServiceA(ctx context.Context, serviceaID string) (*ports.ServiceAInfo, error) {
+    req := connect.NewRequest(&serviceav1.GetServiceARequest{
+        Id: serviceaID,
     })
 
-    resp, err := c.client.GetAuthor(ctx, req)
+    resp, err := c.client.GetServiceA(ctx, req)
     if err != nil {
         return nil, translateError(err)
     }
 
-    author := resp.Msg.Author
-    return &ports.AuthorInfo{
-        ID:   author.Id,
-        Name: author.Name,
-        Bio:  author.Bio,
+    servicea := resp.Msg.Servicea
+    return &ports.ServiceAInfo{
+        ID:   servicea.Id,
+        Name: servicea.Name,
+        Bio:  servicea.Bio,
     }, nil
 }
 
@@ -270,9 +276,9 @@ func translateError(err error) error {
     if errors.As(err, &connectErr) {
         switch connectErr.Code() {
         case connect.CodeNotFound:
-            return ports.ErrAuthorNotFound
+            return ports.ErrServiceANotFound
         default:
-            return ports.ErrAuthorServiceDown
+            return ports.ErrServiceAServiceDown
         }
     }
     return err
@@ -282,26 +288,26 @@ func translateError(err error) error {
 ## 5. Wire Based on Configuration
 
 ```go
-// services/authsvc/cmd/authsvc/main.go
+// services/servicebsvc/cmd/servicebsvc/main.go
 func main() {
     cfg := infra.LoadConfig()
 
-    var authorClient ports.AuthorClient
+    var serviceaClient ports.ServiceAClient
 
-    if cfg.UseInProcessBridge {
-        // In-process via bridge
-        authorServer := getAuthorServiceInprocServer()
-        authorBridge := authorsvc.NewInprocClient(authorServer)
-        authorClient = inproc.NewClient(authorBridge)
+    if cfg.UseInProcessContracts {
+        // In-process via contract definition
+        serviceaServer := getServiceAServiceInprocServer()
+        serviceaContract := serviceasvc.NewInprocClient(serviceaServer)
+        serviceaClient = inproc.NewClient(serviceaContract)
     } else {
         // Network via Connect
-        authorClient = connect.NewClient(cfg.AuthorServiceURL, &http.Client{
+        serviceaClient = connect.NewClient(cfg.ServiceAServiceURL, &http.Client{
             Timeout: 5 * time.Second,
         })
     }
 
     // Wire the rest of the service
-    deps := infra.InitializeDependencies(cfg, authorClient)
+    deps := infra.InitializeDependencies(cfg, serviceaClient)
     // ...
 }
 ```
