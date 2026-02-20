@@ -728,129 +728,45 @@ func (c *Client) GetAuthor(ctx context.Context, authorID string) (*ports.AuthorI
 
 **Location:** `services/*/internal/infra/`
 
-**Configuration** (`infra/config/config.go`)
+**Configuration:** `infra/config/config.go`
+
+Each service loads its own configuration via:
+
+```go
+cfg, err := config.Load()
+```
 
 **Pattern:** 3-layer configuration (defaults → environment-specific → secrets)
 
-```go
-package config
+**Layers:**
+1. `defaults.yaml` - Base configuration (embedded)
+2. `${APP_ENV}.yaml` - Environment overrides (dev.yaml, prod.yaml - embedded)
+3. Environment variables - Secrets and runtime overrides
 
-import (
-    "embed"
-    "fmt"
-    "os"
-    "gopkg.in/yaml.v3"
-)
-
-//go:embed *.yaml
-var configFS embed.FS
-
-type Config struct {
-    HTTPPort string     `yaml:"http_port"`
-    DB       DBConfig   `yaml:"db"`
-    Logger   LogConfig  `yaml:"logger"`
-}
-
-type DBConfig struct {
-    Host     string `yaml:"host"`
-    Port     int    `yaml:"port"`
-    Database string `yaml:"database"`
-    User     string `yaml:"user"`
-    Password string `yaml:"password"`  // From environment variable only
-}
-
-type LogConfig struct {
-    Level  string `yaml:"level"`
-    Format string `yaml:"format"`
-}
-
-func Load() (*Config, error) {
-    var cfg Config
-
-    // Layer 1: Load defaults.yaml (embedded)
-    defaultsData, err := configFS.ReadFile("defaults.yaml")
-    if err != nil {
-        return nil, fmt.Errorf("failed to read defaults.yaml: %w", err)
-    }
-    if err := yaml.Unmarshal(defaultsData, &cfg); err != nil {
-        return nil, fmt.Errorf("failed to parse defaults.yaml: %w", err)
-    }
-
-    // Layer 2: Load ${APP_ENV}.yaml (embedded, optional)
-    appEnv := os.Getenv("APP_ENV")
-    if appEnv == "" {
-        appEnv = "dev"  // Default to dev environment
-    }
-
-    envFile := fmt.Sprintf("%s.yaml", appEnv)
-    envData, err := configFS.ReadFile(envFile)
-    if err == nil {
-        // Environment file exists, merge it
-        if err := yaml.Unmarshal(envData, &cfg); err != nil {
-            return nil, fmt.Errorf("failed to parse %s: %w", envFile, err)
-        }
-    }
-
-    // Layer 3: Apply secrets from environment variables
-    if dbPassword := os.Getenv("DB_PASSWORD"); dbPassword != "" {
-        cfg.DB.Password = dbPassword
-    }
-    if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
-        cfg.DB.Host = dbHost
-    }
-    if httpPort := os.Getenv("HTTP_PORT"); httpPort != "" {
-        cfg.HTTPPort = httpPort
-    }
-
-    return &cfg, nil
-}
-```
-
-**Configuration Files:**
-
-`defaults.yaml` (base configuration):
-```yaml
-http_port: ":8080"
-db:
-  host: "localhost"
-  port: 5432
-  database: "servicea_dev"
-  user: "postgres"
-  password: ""  # Never set in files, always from env var
-logger:
-  level: "info"
-  format: "json"
-```
-
-`dev.yaml` (development overrides):
-```yaml
-db:
-  database: "servicea_dev"
-logger:
-  level: "debug"
-  format: "text"
-```
-
-`prod.yaml` (production overrides):
-```yaml
-http_port: ":443"
-db:
-  host: "db.production.internal"
-  database: "servicea_prod"
-logger:
-  level: "warn"
-  format: "json"
-```
-
-**Usage:**
+**Environment Variables:**
 
 ```bash
-# Development (loads defaults.yaml + dev.yaml + env vars)
-APP_ENV=dev DB_PASSWORD=secret go run ./cmd/servicea
+# Required (secrets - never in files)
+DB_PASSWORD=secret_password
 
-# Production (loads defaults.yaml + prod.yaml + env vars)
-APP_ENV=prod DB_PASSWORD=secret DB_HOST=db.prod.internal go run ./cmd/servicea
+# Optional (runtime overrides)
+APP_ENV=prod              # Selects prod.yaml
+HTTP_PORT=:8080
+DB_HOST=db.prod.internal
+DB_USER=service_user
 ```
+
+**Example:**
+
+```bash
+# Development
+APP_ENV=dev DB_PASSWORD=dev_secret go run ./cmd/servicea
+
+# Production
+APP_ENV=prod DB_PASSWORD=prod_secret DB_HOST=db.internal go run ./cmd/servicea
+```
+
+For encrypted environment variables you can use the [Mise SOPS plugin](https://mise.jdx.dev/environments/secrets/sops.html).
 
 ## 5. Runtime Orchestration
 
@@ -1326,46 +1242,6 @@ go run ./tools/arch-test
 # - No service imports another service's internal/
 # - Dependency flow rules (domain <- application <- adapters)
 ```
-
-## Services' Configuration
-
-Each service loads its own configuration via:
-
-```go
-cfg, err := config.Load()
-```
-
-**Pattern:** 3-layer configuration (defaults → environment-specific → secrets)
-
-**Layers:**
-1. `defaults.yaml` - Base configuration (embedded)
-2. `${APP_ENV}.yaml` - Environment overrides (dev.yaml, prod.yaml - embedded)
-3. Environment variables - Secrets and runtime overrides
-
-**Environment Variables:**
-
-```bash
-# Required (secrets - never in files)
-DB_PASSWORD=secret_password
-
-# Optional (runtime overrides)
-APP_ENV=prod              # Selects prod.yaml
-HTTP_PORT=:8080
-DB_HOST=db.prod.internal
-DB_USER=service_user
-```
-
-**Example:**
-
-```bash
-# Development
-APP_ENV=dev DB_PASSWORD=dev_secret go run ./cmd/servicea
-
-# Production
-APP_ENV=prod DB_PASSWORD=prod_secret DB_HOST=db.internal go run ./cmd/servicea
-```
-
-For encrypted environment variables you can use the [Mise SOPS plugin](https://mise.jdx.dev/environments/secrets/sops.html).
 
 ## Deployment
 
