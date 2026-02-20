@@ -2,6 +2,49 @@
 
 Go Workspaces Modular Monolith with Contract Definitions - Pure Technical Documentation
 
+<!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
+**Table of Contents**
+
+- [Technical Implementation Reference](#technical-implementation-reference)
+  - [1. Workspace Architecture](#1-workspace-architecture)
+    - [Go Workspace Configuration](#go-workspace-configuration)
+    - [Module Organization](#module-organization)
+    - [Module Dependency Rules](#module-dependency-rules)
+  - [2. Contract Definition Layer](#2-contract-definition-layer)
+    - [Contract Structure](#contract-structure)
+    - [Contract Components](#contract-components)
+    - [Contract Dependency Rules](#contract-dependency-rules)
+  - [3. Service Module Structure](#3-service-module-structure)
+    - [Directory Layout](#directory-layout)
+    - [go.mod Configuration](#gomod-configuration)
+    - [Internal Package Organization](#internal-package-organization)
+  - [4. Hexagonal Architecture Layers](#4-hexagonal-architecture-layers)
+    - [Layer Dependencies](#layer-dependencies)
+    - [Domain Layer](#domain-layer)
+    - [Application Layer](#application-layer)
+    - [Adapters Layer](#adapters-layer)
+      - [Inbound Adapters](#inbound-adapters)
+      - [Outbound Adapters](#outbound-adapters)
+    - [Infrastructure Layer](#infrastructure-layer)
+  - [5. Runtime Orchestration](#5-runtime-orchestration)
+    - [Composition Root (main.go)](#composition-root-maingo)
+    - [Supervision with errgroup](#supervision-with-errgroup)
+    - [Worker Service Pattern (Non-Blocking Services)](#worker-service-pattern-non-blocking-services)
+  - [6. Protobuf Integration](#6-protobuf-integration)
+    - [When to Use Protobuf](#when-to-use-protobuf)
+    - [Directory Structure](#directory-structure)
+    - [Protobuf Definition](#protobuf-definition)
+    - [Code Generation](#code-generation)
+    - [Using Generated Code](#using-generated-code)
+  - [7. Testing & Operations](#7-testing--operations)
+    - [Test Organization](#test-organization)
+    - [Operational Commands](#operational-commands)
+    - [Architecture Validation](#architecture-validation)
+  - [Deployment](#deployment)
+
+<!-- markdown-toc end -->
+
+
 ## 1. Workspace Architecture
 
 ### Go Workspace Configuration
