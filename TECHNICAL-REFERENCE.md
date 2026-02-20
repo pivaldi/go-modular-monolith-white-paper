@@ -730,16 +730,20 @@ func (c *Client) GetAuthor(ctx context.Context, authorID string) (*ports.AuthorI
 
 **Configuration** (`infra/config/config.go`)
 
+**Pattern:** 3-layer configuration (defaults → environment-specific → secrets)
+
 ```go
 package config
 
 import (
     "embed"
+    "fmt"
+    "os"
     "gopkg.in/yaml.v3"
 )
 
-//go:embed defaults.yaml
-var defaultsFS embed.FS
+//go:embed *.yaml
+var configFS embed.FS
 
 type Config struct {
     HTTPPort string     `yaml:"http_port"`
@@ -747,19 +751,105 @@ type Config struct {
     Logger   LogConfig  `yaml:"logger"`
 }
 
-func Load() (*Config, error) {
-    // Load embedded defaults
-    data, _ := defaultsFS.ReadFile("defaults.yaml")
-    var cfg Config
-    yaml.Unmarshal(data, &cfg)
+type DBConfig struct {
+    Host     string `yaml:"host"`
+    Port     int    `yaml:"port"`
+    Database string `yaml:"database"`
+    User     string `yaml:"user"`
+    Password string `yaml:"password"`  // From environment variable only
+}
 
-    // Apply environment overrides
-    if port := os.Getenv("SERVICEA_HTTP_PORT"); port != "" {
-        cfg.HTTPPort = port
+type LogConfig struct {
+    Level  string `yaml:"level"`
+    Format string `yaml:"format"`
+}
+
+func Load() (*Config, error) {
+    var cfg Config
+
+    // Layer 1: Load defaults.yaml (embedded)
+    defaultsData, err := configFS.ReadFile("defaults.yaml")
+    if err != nil {
+        return nil, fmt.Errorf("failed to read defaults.yaml: %w", err)
+    }
+    if err := yaml.Unmarshal(defaultsData, &cfg); err != nil {
+        return nil, fmt.Errorf("failed to parse defaults.yaml: %w", err)
+    }
+
+    // Layer 2: Load ${APP_ENV}.yaml (embedded, optional)
+    appEnv := os.Getenv("APP_ENV")
+    if appEnv == "" {
+        appEnv = "dev"  // Default to dev environment
+    }
+
+    envFile := fmt.Sprintf("%s.yaml", appEnv)
+    envData, err := configFS.ReadFile(envFile)
+    if err == nil {
+        // Environment file exists, merge it
+        if err := yaml.Unmarshal(envData, &cfg); err != nil {
+            return nil, fmt.Errorf("failed to parse %s: %w", envFile, err)
+        }
+    }
+
+    // Layer 3: Apply secrets from environment variables
+    if dbPassword := os.Getenv("DB_PASSWORD"); dbPassword != "" {
+        cfg.DB.Password = dbPassword
+    }
+    if dbHost := os.Getenv("DB_HOST"); dbHost != "" {
+        cfg.DB.Host = dbHost
+    }
+    if httpPort := os.Getenv("HTTP_PORT"); httpPort != "" {
+        cfg.HTTPPort = httpPort
     }
 
     return &cfg, nil
 }
+```
+
+**Configuration Files:**
+
+`defaults.yaml` (base configuration):
+```yaml
+http_port: ":8080"
+db:
+  host: "localhost"
+  port: 5432
+  database: "servicea_dev"
+  user: "postgres"
+  password: ""  # Never set in files, always from env var
+logger:
+  level: "info"
+  format: "json"
+```
+
+`dev.yaml` (development overrides):
+```yaml
+db:
+  database: "servicea_dev"
+logger:
+  level: "debug"
+  format: "text"
+```
+
+`prod.yaml` (production overrides):
+```yaml
+http_port: ":443"
+db:
+  host: "db.production.internal"
+  database: "servicea_prod"
+logger:
+  level: "warn"
+  format: "json"
+```
+
+**Usage:**
+
+```bash
+# Development (loads defaults.yaml + dev.yaml + env vars)
+APP_ENV=dev DB_PASSWORD=secret go run ./cmd/servicea
+
+# Production (loads defaults.yaml + prod.yaml + env vars)
+APP_ENV=prod DB_PASSWORD=secret DB_HOST=db.prod.internal go run ./cmd/servicea
 ```
 
 ## 5. Runtime Orchestration
@@ -1237,30 +1327,47 @@ go run ./tools/arch-test
 # - Dependency flow rules (domain <- application <- adapters)
 ```
 
-### Configuration
+## Services' Configuration
 
-Each service loads config via:
+Each service loads its own configuration via:
 
 ```go
 cfg, err := config.Load()
 ```
 
-**Pattern:** Embedded defaults + environment overrides
+**Pattern:** 3-layer configuration (defaults → environment-specific → secrets)
+
+**Layers:**
+1. `defaults.yaml` - Base configuration (embedded)
+2. `${APP_ENV}.yaml` - Environment overrides (dev.yaml, prod.yaml - embedded)
+3. Environment variables - Secrets and runtime overrides
 
 **Environment Variables:**
 
 ```bash
-# Service A
-SERVICEA_HTTP_PORT=:8081
-SERVICEA_DB_HOST=localhost
-SERVICEA_DB_PASSWORD=secret
+# Required (secrets - never in files)
+DB_PASSWORD=secret_password
 
-# Service B
-SERVICEB_HTTP_PORT=:8082
-SERVICEB_DB_HOST=localhost
+# Optional (runtime overrides)
+APP_ENV=prod              # Selects prod.yaml
+HTTP_PORT=:8080
+DB_HOST=db.prod.internal
+DB_USER=service_user
 ```
 
-### Deployment
+**Example:**
+
+```bash
+# Development
+APP_ENV=dev DB_PASSWORD=dev_secret go run ./cmd/servicea
+
+# Production
+APP_ENV=prod DB_PASSWORD=prod_secret DB_HOST=db.internal go run ./cmd/servicea
+```
+
+For encrypted environment variables you can use the [Mise SOPS plugin](https://mise.jdx.dev/environments/secrets/sops.html).
+
+## Deployment
 
 **Monolith Mode:**
 - Build single binary: `go build ./cmd/monolith`
@@ -1268,25 +1375,87 @@ SERVICEB_DB_HOST=localhost
 - All services run in one process
 
 **Distributed Mode:**
-- Build separate binaries: `go build ./services/serviceasvc/cmd/serviceasvc`
-- Deploy as separate containers
-- Swap in-process clients for network clients in main.go
 
-### Key Files Reference
+To distribute services, swap in-process clients for network clients in `main.go`. Only the wiring changes; application layer stays unchanged.
 
-| File | Purpose |
-|------|---------|
-| `go.work` | Workspace coordination |
-| `contracts/definitions/*/api.go` | Contract interface |
-| `contracts/definitions/*/inproc_client.go` | In-process client wrapper |
-| `services/*/internal/adapters/inbound/contracts/inproc_server.go` | Contract implementation |
-| `services/*/internal/domain/` | Business logic |
-| `services/*/internal/application/` | Use cases |
-| `services/*/internal/adapters/` | I/O boundaries |
-| `cmd/monolith/main.go` | Composition root |
-| `contracts/proto/` | Protobuf schemas |
-| `contracts/buf.gen.yaml` | Code generation config |
+**Before (In-Process):**
+```go
+// cmd/monolith/main.go
 
----
+import (
+    authorservice "github.com/.../contracts/definitions/authorservice"
+    authoradapters "github.com/.../services/authorservice/internal/adapters/inbound/contracts"
+    authorclientInproc "github.com/.../services/authservice/internal/adapters/outbound/authorclient/inproc"
+)
 
-**End of Technical Reference**
+// Create in-process server
+authorServer := authoradapters.NewInprocServer(authorCfg)
+
+// Wrap in contract client
+authorContract := authorservice.NewInprocClient(authorServer)
+
+// Wrap in adapter
+authorClient := authorclientInproc.NewClient(authorContract)
+
+// Inject authorClient into service
+authService := authservice.New(authCfg, authorClient)
+```
+
+**After (Network/Connect):**
+
+*Author Service (provider):*
+```go
+// cmd/authorservice/main.go (separate binary)
+
+import (
+    authorconnect "github.com/.../services/authorservice/internal/adapters/inbound/connect"
+)
+
+// Create Connect server (HTTP handler exposing the service)
+authorConnectHandler := authorconnect.NewHandler(authorCfg)
+
+// Start HTTP server
+g.Go(func() error {
+    server := &http.Server{
+        Addr:    ":8081",
+        Handler: authorConnectHandler,  // Connect HTTP endpoint
+    }
+    return server.ListenAndServe()
+})
+```
+
+*Auth Service (consumer):*
+```go
+// cmd/authservice/main.go (separate binary)
+
+import (
+    authorclientConnect "github.com/.../services/authservice/internal/adapters/outbound/authorclient/connect"
+)
+
+// Create network client pointing to Author Service URL
+authorClient := authorclientConnect.NewClient("https://author-service.internal:8081")
+
+// Inject authorClient into service (same interface!)
+authService := authservice.New(authCfg, authorClient)
+```
+
+**What changed:**
+
+- *Provider side (authorservice):*
+  - Inbound adapter: `inbound/contracts` → `inbound/connect`
+  - Server: InprocServer → Connect HTTP server
+- *Consumer side (authservice):*
+  - Outbound adapter: `outbound/authorclient/inproc` → `outbound/authorclient/connect`
+  - Client: InprocClient(server) → Connect client with URL
+- *Application layer:* No changes - same interfaces, same business logic
+
+**Deployment:**
+```bash
+# Build separate binaries
+go build -o bin/authorservice ./services/authorservice/cmd/authorservice
+go build -o bin/authservice ./services/authservice/cmd/authservice
+
+# Deploy as separate containers
+docker run -e APP_ENV=prod authorservice
+docker run -e APP_ENV=prod -e AUTHOR_SERVICE_URL=https://author-service authservice
+```
