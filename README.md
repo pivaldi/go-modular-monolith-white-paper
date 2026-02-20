@@ -1,722 +1,1382 @@
-# Go Workspaces Modular Monolith with "Pure" Contract Definitions
+# Technical Implementation Reference
 
-**A Modular monolith pattern for building maintainable Go systems using workspaces with clear boundaries and flexible distribution.**
+Go Workspaces Modular Monolith with Contract Definitions - Pure Technical Documentation.
 
-## Table of Contents
+**⚠️ Important Note:** This document provides technical implementation details. For architectural context, design rationale, and comparison with alternative approaches, see [white-paper.md](white-paper.md).
+
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
+**Table of Contents**
 
-- [Go Modular Monolith: Architecture White Paper](#go-modular-monolith-architecture-white-paper)
-  - [Introduction](#introduction)
-    - [The Monolith vs Microservices Dilemma](#the-monolith-vs-microservices-dilemma)
-    - [What This Pattern Provides](#what-this-pattern-provides)
-    - [Who This Is For](#who-this-is-for)
-  - [Problem Statement](#problem-statement)
-    - [The Challenges We're Solving](#the-challenges-were-solving)
-    - [What Success Looks Like](#what-success-looks-like)
-  - [Alternative Approaches](#alternative-approaches)
-    - [Approach Comparison Matrix](#approach-comparison-matrix)
-    - [1. Traditional Layered Monolith](#1-traditional-layered-monolith)
-    - [2. Modular Monolith (Single Module)](#2-modular-monolith-single-module)
-    - [3. Microservices-First](#3-microservices-first)
-    - [4. Go Workspaces Modular Monolith with Contract Definitions (Recommended)](#4-go-workspaces-modular-monolith-with-contract-definitions-recommended)
-  - [The Recommended Pattern](#the-recommended-pattern)
-    - [Core Principles](#core-principles)
-    - [High-Level Architecture Diagram](#high-level-architecture-diagram)
-  - [Architecture Deep Dive](#architecture-deep-dive)
-    - [Complete Directory Structure](#complete-directory-structure)
-    - [Key Architectural Decisions](#key-architectural-decisions)
-  - [Contract Definition Pattern](#contract-definition-pattern)
-  - [Runtime Orchestration: The Supervisor Pattern](#runtime-orchestration-the-supervisor-pattern)
-    - [The Monolith Composition Root Managed by `errgroup`](#the-monolith-composition-root-managed-by-errgroup)
-      - [Handling Cross-Service Events](#handling-cross-service-events)
-    - [Lifecycle Visualization](#lifecycle-visualization)
-    - [Why "Shared Fate"?](#why-shared-fate)
-    - [Advanced Supervision](#advanced-supervision)
-      - [The Core Difference](#the-core-difference)
-      - [When to use `suture`](#when-to-use-suture)
-  - [DDD and Hexagonal Architecture](#ddd-and-hexagonal-architecture)
-    - [The Hexagon: Ports and Adapters](#the-hexagon-ports-and-adapters)
-    - [Domain Layer: Pure Business Logic](#domain-layer-pure-business-logic)
-    - [Application Layer: Use Cases and Orchestration](#application-layer-use-cases-and-orchestration)
-    - [Adapters Layer: I/O Boundaries](#adapters-layer-io-boundaries)
-      - [Example Inbound Adapter (HTTP)](#example-inbound-adapter-http)
-      - [Example Outbound Adapter (Repository)](#example-outbound-adapter-repository)
-    - [Clean Dependency Rule](#clean-dependency-rule)
-  - [Protobuf Contracts (optional)](#protobuf-contracts-optional)
-  - [Testing Strategy](#testing-strategy)
-  - [Operational Concerns](#operational-concerns)
-  - [Decision Criteria](#decision-criteria)
-    - [Use This Pattern When:](#use-this-pattern-when)
-    - [Don't Use This Pattern When:](#dont-use-this-pattern-when)
-    - [Comparison with Alternatives](#comparison-with-alternatives)
-  - [Migration Scenarios](#migration-scenarios)
-  - [Failure Modes](#failure-modes)
-  - [Conclusion](#conclusion)
-    - [Key Takeaways](#key-takeaways)
-    - [When This Pattern Shines](#when-this-pattern-shines)
-    - [Evolution Path](#evolution-path)
-    - [Final Recommendation](#final-recommendation)
-  - [References and Further Reading](#references-and-further-reading)
-    - [Go Workspaces](#go-workspaces)
-    - [Domain-Driven Design](#domain-driven-design)
-    - [Hexagonal Architecture](#hexagonal-architecture)
-    - [Protocol Buffers & Connect](#protocol-buffers--connect)
-    - [Testing](#testing)
-    - [Tools](#tools)
+- [Technical Implementation Reference](#technical-implementation-reference)
+  - [1. Workspace Architecture](#1-workspace-architecture)
+    - [Go Workspace Configuration](#go-workspace-configuration)
+    - [Module Organization](#module-organization)
+    - [Module Dependency Rules](#module-dependency-rules)
+  - [2. Contract Definition Layer](#2-contract-definition-layer)
+    - [Contract Structure](#contract-structure)
+    - [Contract Components](#contract-components)
+    - [Contract Dependency Rules](#contract-dependency-rules)
+  - [3. Service Module Structure](#3-service-module-structure)
+    - [Directory Layout](#directory-layout)
+    - [go.mod Configuration](#gomod-configuration)
+    - [Internal Package Organization](#internal-package-organization)
+  - [4. Hexagonal Architecture Layers](#4-hexagonal-architecture-layers)
+    - [Layer Dependencies](#layer-dependencies)
+    - [Domain Layer](#domain-layer)
+    - [Application Layer](#application-layer)
+    - [Adapters Layer](#adapters-layer)
+      - [Inbound Adapters](#inbound-adapters)
+      - [Outbound Adapters](#outbound-adapters)
+    - [Infrastructure Layer](#infrastructure-layer)
+  - [5. Runtime Orchestration](#5-runtime-orchestration)
+    - [Composition Root (main.go)](#composition-root-maingo)
+    - [Supervision with errgroup](#supervision-with-errgroup)
+    - [Worker Service Pattern (Non-Blocking Services)](#worker-service-pattern-non-blocking-services)
+  - [6. Protobuf Integration](#6-protobuf-integration)
+    - [When to Use Protobuf](#when-to-use-protobuf)
+    - [Directory Structure](#directory-structure)
+    - [Protobuf Definition](#protobuf-definition)
+    - [Code Generation](#code-generation)
+    - [Using Generated Code](#using-generated-code)
+  - [7. Testing & Operations](#7-testing--operations)
+    - [Test Organization](#test-organization)
+    - [Operational Commands](#operational-commands)
+    - [Architecture Validation](#architecture-validation)
+  - [Deployment](#deployment)
 
 <!-- markdown-toc end -->
 
 
-Before exploring the detailed white-paper, you can read [this 15 minutes blog post](https://blog.piprime.fr/en/innovative-go-modular-monolith-architecture/) that expose the key principles of this modular monolith architecture governed by a Go workspace.
+## 1. Workspace Architecture
 
-## Introduction
+### Go Workspace Configuration
 
-### The Monolith vs Microservices Dilemma
-
-The choice between monoliths and microservices is well-documented: monoliths can become tangled over time, while microservices introduce operational complexity from day one. This white paper presents a third approach—the **Go Workspaces Modular Monolith with Contract Definitions**—that provides clear service boundaries with flexible deployment options.
-
-### What This Pattern Provides
-
-- **Strong architectural boundaries** enforced by the Go compiler
-- **In-process performance** during development and when services are co-located
-- **Flexible distribution** when services need independent scaling
-- **Clear migration path** from monolith to distributed without rewriting
-- **DDD and hexagonal architecture** for maintainable domain logic
-- **Optional protobuf contracts** for when you need network protocols
-
-### Who This Is For
-
-- Teams building new systems where future distribution is possible but not immediate
-- Organizations consolidating microservices that should have been a monolith
-- Projects migrating from tightly-coupled monoliths toward better boundaries
-- Developers evaluating architectural approaches for medium-to-large Go systems (5-20 developers)
-
-This is not the only valid approach. We'll compare it with alternatives and discuss when this pattern fits and when it doesn't.
-
-## Problem Statement
-
-### The Challenges We're Solving
-
-**1. Boundary Erosion in Traditional Monoliths**
-
-Classic Go monoliths rely on convention to maintain boundaries:
-- `internal/` packages provide some protection but nothing prevents `serviceA` from importing `serviceB/internal` with relative imports
-- Architectural violations happen gradually and silently
-- Refactoring becomes increasingly difficult
-
-**2. Premature Distribution Complexity**
-
-Microservices-first approaches impose costs before they're justified:
-- Operational overhead (Kubernetes, service mesh, monitoring)
-- Network reliability concerns from day one
-- Distributed transactions and eventual consistency
-- Development environment complexity
-
-**3. Difficult Migration Paths**
-
-Existing patterns make evolution painful:
-- Monolith -> Microservices: Requires complete rewrites of communication layers
-- Microservices -> Monolith: Loses service boundaries when consolidating
-- Either direction: High risk, long timelines, business disruption
-
-### What Success Looks Like
-
-An ideal pattern would provide:
-- Compiler-enforced service boundaries
-- In-process performance when appropriate
-- Network distribution when needed
-- Incremental migration (no big bang rewrites)
-- Development simplicity (monorepo experience)
-- Production flexibility (deploy together or separately)
-
-## Alternative Approaches
-
-Before presenting the recommended pattern, let's compare common architectural approaches and their trade-offs.
-
-### Approach Comparison Matrix
-
-| Pattern | Boundaries | Performance | Migration | Complexity | Best For |
-|---------|-----------|-------------|-----------|------------|----------|
-| **Go Work + Contract Definition** | Strong | Excellent | Easy | Medium | 5-20 devs, likely distribution |
-| **Traditional Monolith** | None | Excellent | Hard | Very Low | 1-3 devs, simple domain |
-| **Modular Monolith** | Weak | Excellent | Medium | Low | 2-5 devs, unlikely distribution |
-| **Microservices** | Strongest | Good | N/A | Very High | 20+ devs, known distribution needs |
-| **Shared Kernel** | Weak | Excellent | Very Hard | Medium | Avoid - creates tight coupling |
-
-### 1. Traditional Layered Monolith
-
-**Structure:** Single module, layered architecture (handlers -> services -> repositories).
-
-**Pros:**
-- Simplest setup
-- Fast development
-- Easy transactions
-- Best initial performance
-
-**Cons:**
-- No boundaries (everything can call everything)
-- Hard to split later
-- Merge conflicts across team
-- Cannot scale services independently
-
-**When to use:** Solo developer, simple CRUD, MVP, unclear domain.
-
-### 2. Modular Monolith (Single Module)
-
-**Structure:** One `go.mod`, services use `internal/` packages and public facades with clearer boundaries than pure layered approach.
-
-**Pros:**
-- Simple setup
-- Zero network overhead
-- Shared dependency management
-- Fast iteration
-
-**Cons:**
-- Weak boundaries (can be violated)
-- Relies on discipline and linting
-- Migration requires adding HTTP layer
-- Shared dependency graph (for example, service A inherits service B's database drivers)
-
-**When to use:** Small team (2-5 devs), performance critical, strong discipline.
-
-### 3. Microservices-First
-
-**Structure:** Separate repos, separate deployments, network-only communication.
-
-**Pros:**
-- Strongest isolation
-- Independent deployment and scaling
-- Technology freedom
-- Team autonomy
-
-**Cons:**
-- Highest operational complexity
-- Distributed system challenges from day one
-- Development overhead (must run many services)
-- Debugging difficulty (distributed tracing required)
-
-**When to use:** Known scaling needs, large team (30+ devs), polyglot requirements
-
-### 4. Go Workspaces Modular Monolith with Contract Definitions (Recommended)
-
-**Structure:** Multiple Go modules coordinated by `go.work`, contract definitions for in-process calls
-
-**Pros:**
-- Strong boundaries (compiler-enforced)
-- Excellent performance (in-process via contract definitions)
-- Easy migration (swap adapters)
-- Monorepo convenience provided by [go.work](https://go.dev/doc/tutorial/workspaces)
-- Independent module versioning
-- Explicit, visible seams
-
-**Cons:**
-- Medium setup complexity (multiple `go.mod` files)
-- Requires understanding of contract-based architecture
-- More modules to coordinate
-
-**When to use:** Medium team (5-20 devs), clear boundaries, likely future distribution.
-
-**This is the pattern we recommend and detail in this white paper.**
-
-## The Recommended Pattern
-
-### Core Principles
-
-**1. Go Workspaces for Module Coordination**
-
-Use `go.work` to coordinate multiple independent Go modules in a single
-repository:
-- Each service is its own module with its own `go.mod`
-- Workspace makes cross-module development seamless
-- Compiler enforces module boundaries
-
-**2. Contract Definitions for Explicit Boundaries**
-
-Services communicate via public contract definitions:
-- Contract definition defines the service API with Go interfaces
-- Contract definition provides in-process client and server implementations
-- Services can only import contract definitions, not other service internals
-- **Compiler prevents boundary violations**
-
-**3. Optional Network Transport**
-
-Network protocols like HTTP/Connect/gRPC are opt-in:
-- Use in-process contract definitions during development
-- Add network transport when distribution is needed
-- **Swap adapters via dependency injection**
-- Same service code works with both transports
-
-**4. Hexagonal Architecture Within Services**
-
-Each service uses clean architecture internally:
-- Domain layer for pure business logic
-- Application layer with use cases and ports
-- Adapters layer like HTTP, database, service clients
-- Infrastructure layer for wiring and config
-
-### High-Level Architecture Diagram
-
-```mermaid
-graph TB
-    subgraph monorepo["Service Manager (Monorepo)"]
-        contracts["contracts/<br/>(proto)<br/><br/>serviceasvc.proto"]
-        contract_def["contracts/definitions/<br/>(public)<br/><br/>serviceasvc/<br/>api.go<br/>dto.go<br/>inproc_*.go"]
-        services["services/<br/>(private)<br/><br/>servicebsvc/<br/>internal/<br/><br/>serviceasvc/<br/>internal/"]
-
-        services -->|uses| contract_def
-        contract_def -->|generates from| contracts
-
-        workspace["go.work (coordinates all modules)"]
-    end
-
-    style contracts fill:#e1f5ff
-    style contract_def fill:#fff4e1
-    style services fill:#ffe1e1
-```
-
-**In-Process:**
-```mermaid
-graph LR
-    servicebsvc["servicebsvc"] -->|calls| inproc_client["contract.InprocClient"]
-    inproc_client -->|calls| inproc_server["contract.InprocServer"]
-    inproc_server -->|calls| serviceasvc_internal["serviceasvc/internal"]
-
-    note["Performance: &lt;1μs latency, zero serialization"]
-
-    style servicebsvc fill:#e1f5ff
-    style inproc_client fill:#fff4e1
-    style inproc_server fill:#fff4e1
-    style serviceasvc_internal fill:#ffe1e1
-```
-
-**Distributed:**
-```mermaid
-graph LR
-    servicebsvc["servicebsvc"] -->|HTTP request| connect_client["Connect Client"]
-    connect_client -->|network| http["HTTP"]
-    http -->|network| connect_server["Connect Server"]
-    connect_server -->|calls| serviceasvc_internal["serviceasvc/internal"]
-
-    note["Performance: 1-5ms latency, protobuf serialization"]
-
-    style servicebsvc fill:#e1f5ff
-    style connect_client fill:#fff4e1
-    style http fill:#f0f0f0
-    style connect_server fill:#fff4e1
-    style serviceasvc_internal fill:#ffe1e1
-```
-
-## Architecture Deep Dive
-
-### Complete Directory Structure
-
-See the file [complete-directory-structure.md](complete-directory-structure.md).
-
-### Key Architectural Decisions
-
-**1. Why Multiple Go Modules?**
-
-Each service is an independent Go module because:
-- **Compiler enforces boundaries** - Service A physically cannot import Service B's `internal/` package
-- **Independent dependency graphs** - `servicebsvc` doesn't inherit `serviceasvc`'s PostgreSQL driver
-- **Independent versioning** - Services can evolve at different rates
-- **Clear ownership** - Each module has its own `go.mod` showing dependencies
-- **Future extraction** - Already a separate module, easy to move to separate repo
-
-**2. Why Contract Definitions?**
-
-Contract definitions provide truly independent service boundaries:
-- **Public API definition** - Clear contract using Go interfaces
-- **True module independence** - Contract definition has literally zero dependencies (no `require` statements)
-- **Compiler enforcement** - Services cannot import other service internals (different Go modules)
-- **In-process performance** - Direct function calls via interfaces, zero network overhead
-- **Explicit seam** - Visible boundary between services in the module structure
-- **Flexible implementation** - Same contract interface works for in-process and network transports
-- **Testability** - Easy to mock the contract interface
-
-**Key architectural principle:** Contract definitions contain ONLY interfaces, DTOs, errors, and thin client wrappers. All implementations (including InprocServer) live in service internal adapters, where they can access the service's application layer.
-
-**3. Why Optional Protobuf?**
-
-Protobuf contracts are generated but not required for in-process communication:
-- Use **Go DTOs in contract definitions** during development (simple, idiomatic)
-- Add **protobuf** when you need network transport
-- Contract definition can use either protobuf types or custom Go types
-- Gradual adoption - start simple, add complexity when needed
-
-**4. Why Go Workspaces?**
-
-`go.work` coordinates independent modules:
-- **Monorepo experience** - Feels like single codebase
-- **Seamless cross-module development** - No publishing required
-- **IDE integration** - Jump to definition across modules
-- **Single test command** - `go test ./...` works across workspace
-- **Replace directives** - Local overrides for development
-
-
-## Contract Definition Pattern
-
-See the file [contract-definition-pattern.md](contract-definition-pattern.md).
-
-## Runtime Orchestration: The Supervisor Pattern
-
-While `go.work` groups the code, the **Composition Root** groups the runtime. In a *Modular Monolith*, you need a single `main.go` that initializes all services, wires their contract definitions, and manages their lifecycles concurrently.
-
-We use the Supervisor Pattern (via errgroup) to manage this. This ensures a "Shared Fate" architecture: if a critical service fails (e.g., DB disconnect), the supervisor cancels the context for all services, shutting down the monolith cleanly so the orchestrator (Kubernetes) can restart the pod.
-
-### The Monolith Composition Root Managed by `errgroup`
-
-See the file: [example-composition-root-managed-by-errgroup.md](example-composition-root-managed-by-errgroup.md).
-
-#### Handling Cross-Service Events
-See the file [cross-service-events.md](cross-service-events.md).
-
-### Lifecycle Visualization
-The following diagram illustrates how the errgroup acts as a safety net. Note how an error in serviceasvc propagates to stop servicebsvc immediately.
-
-```mermaid
-sequenceDiagram
-    participant Main as Composition Root
-    participant G as ErrGroup
-    participant A as ServiceAService
-    participant B as ServiceBService
-
-    Main->>G: g.Go(ServiceAService)
-    Main->>G: g.Go(ServiceBService)
-
-    par Parallel Execution
-        G->>A: ListenAndServe()
-        G->>B: ListenAndServe()
-    end
-
-    Note over A: CRITICAL FAILURE<br/>(e.g., DB Lost)
-    A--xG: Returns Error
-
-    Note over G: Cancels Context (gCtx)
-    G->>B: Context.Done() signal
-
-    Note over B: Graceful Shutdown
-    B-->>G: Returns nil (Success)
-
-    G-->>Main: Returns Error from ServiceAService
-    Main->>Main: os.Exit(1) -> K8s Restart
-```
-
-### Why "Shared Fate"?
-
-In a distributed microservices environment, if the Service A goes down, the Service B might survive (partial availability). However, in a Modular Monolith, we prefer **Shared Fate** (Fail Fast).
-
-If one module is unhealthy, the process state might be corrupt or resources might be leaking. It is safer to crash the entire pod and let the infrastructure restart a fresh instance than to leave the monolith in a "zombie" state where half the modules are working and half are dead.
-
-
-### Advanced Supervision
-
-For scenarios requiring fine-grained fault tolerance (e.g., ensuring a panic in a background report generator doesn't crash the HTTP API), consider using [suture](https://github.com/thejerf/suture). It brings Erlang-style supervision trees to Go, allowing individual services to restart automatically without taking down the entire process. For most Kubernetes deployments, however, the `errgroup` "fail fast" approach is preferred.
-
-Using `github.com/thejerf/suture` changes the fundamental philosophy of the runtime from **"Fail Fast"** (Shared Fate) to **"Self-Healing"** (Erlang-style Supervision Trees).  
-Here is the breakdown of why you might choose one over the other for the Modular Monolith, and how to implement it.
-
-#### The Core Difference
-
-| Feature | `errgroup` (Recommended for K8s) | `suture` (Recommended for Bare Metal/Daemons) |
-| --- | --- | --- |
-| **Philosophy** | **Crash Together.** If one service fails, the whole pod is unhealthy. Kill it and let Kubernetes restart a fresh instance. | **Keep Running.** If a service crashes, restart just that service. Isolate the failure so the rest of the app stays up. |
-| **Complexity** | **Low.** Standard Go library pattern. | **Medium/High.** Requires understanding supervision trees, backoff strategies, and restart thresholds. |
-| **Recovery** | Delegated to Infrastructure (Docker/K8s). | Handled internally by the Go binary. |
-| **Best For** | HTTP Servers, stateless monoliths. | Background workers, queue consumers, stateful actors. |
-
-
-#### When to use `suture`
-
-You should use `suture` if:
-
-* You have **critical background workers** (e.g., a log collector) that should *never* take down the main HTTP API if they panic.
-* You are running on **Bare Metal** or non-orchestrated environments where a process crash requires manual intervention.
-* You want **granular fault tolerance** (e.g., "Service A" can crash, but "Service B" must stay up).
-
-*Note that it is need to wrap your HTTP servers to respect the `suture.Service` interface specifically, they must return when the context is cancelled:*
-
-## DDD and Hexagonal Architecture
-
-Each service uses Domain-Driven Design and Hexagonal Architecture internally. This section explains the layering within a service.
-
-### The Hexagon: Ports and Adapters
-
-```mermaid
-%%{init: {'flowchart': {'subGraphTitleMargin': {'top': 0, 'bottom': 20}}}}%%
-graph TB
-    inbound["Inbound Adapters<br/>HTTP, Connect, CLI"]
-
-    subgraph application["Application Layer<br/>Use Cases, Ports"]
-        domain["Domain Layer - Pure Logic"]
-    end
-
-    outbound["Outbound Adapters<br/>DB, Cache, Service Clients"]
-
-    inbound --> application
-    application --> outbound
-
-    style inbound fill:#e1f5ff
-    style application fill:#fff4e1
-    style domain fill:#ffe1e1
-    style outbound fill:#e1ffe1
-```
-
-### Domain Layer: Pure Business Logic
-
-**Purpose:** Represent core business concepts and rules
-
-**Characteristics:**
-- No dependencies on frameworks, databases, or external systems
-- Pure Go code using standard library only
-- Fully testable without any infrastructure
-
-**Components:**
-
-1. **Entities** (aggregate roots)
-   - Have identity (ID)
-   - Have lifecycle (created, updated)
-   - Encapsulate business rules
-   - Example: `User`, `Session`, `Author`
-
-2. **Value Objects**
-   - No identity (compared by value)
-   - Immutable
-   - Self-validating
-   - Example: `Email`, `Password`, `AuthorID`
-
-3. **Repository Interfaces** (ports)
-   - Defined by domain, implemented by adapters
-   - Return domain types
-   - Example: `UserRepository`, `SessionRepository`
-
-4. **Domain Services**
-   - Stateless operations on domain objects
-   - Cross-aggregate business logic
-   - Example: `AuthenticationPolicy`
-
-**Example Domain Layer:**
-
-See the file: [example-domain-layer.md](example-domain-layer.md)
-
-### Application Layer: Use Cases and Orchestration
-
-**Purpose:** Implement business workflows that coordinate domain objects
-
-**Characteristics:**
-- Depends on domain layer
-- Defines ports (interfaces) for external dependencies
-- No knowledge of HTTP, databases, or specific frameworks
-- Transaction boundaries
-
-**Components:**
-
-1. **Commands** (write operations)
-   - Change system state
-   - Example: `LoginCommand`, `RegisterCommand`
-
-2. **Queries** (read operations)
-   - Return data without side effects
-   - Can bypass domain for performance (CQRS-lite)
-   - Example: `GetUserQuery`, `ValidateTokenQuery`
-
-3. **Ports** (interfaces for adapters)
-   - Owned by application layer
-   - Implemented by adapters
-   - Example: `AuthorClient`, `Cache`, `Logger`
-
-4. **Application DTOs**
-   - Data transfer objects for application layer
-   - Decouple domain from external world
-
-See the [Example Application Layer](example-application-layer.md).
-
-### Adapters Layer: I/O Boundaries
-
-**Purpose:** Implement ports and handle external communication
-
-**Inbound Adapters** (primary/driving):
-- Deliver requests to the application
-- Examples: HTTP handlers, Connect handlers, CLI commands
-
-**Outbound Adapters** (secondary/driven):
-- Application calls external systems
-- Examples: Database repositories, service clients, cache, events
-
-#### Example Inbound Adapter (HTTP)
-
-See the [Example Inbound Adapter](example-inbound-adapter.md).
-
-#### Example Outbound Adapter (Repository)
-
-See the [Example Outbound Adapter](example-outbound-adapter.md).
-
-### Clean Dependency Rule
+**File:** `go.work`
 
 ```
-Domain Layer
+use (
+    ./contracts
+    ./contracts/definitions/serviceasvc
+    ./contracts/definitions/servicebsvc
+    ./services/serviceasvc
+    ./services/servicebsvc
+    ./test/e2e
+)
+```
+
+**Purpose:** Coordinates multiple independent Go modules in a single repository.
+
+**Key Properties:**
+- Each `use` entry is an independent Go module with its own `go.mod`
+- Workspace makes cross-module development seamless (no publishing required)
+- `go test ./...` works across entire workspace
+- IDE jump-to-definition works across modules
+
+### Module Organization
+
+```
+service-manager/
+├── go.work                           # Workspace coordinator
+├── contracts/                        # Unified contracts module
+│   ├── go.mod                        # Module: contracts
+│   ├── definitions/                  # Contract definitions (pure interfaces)
+│   │   ├── serviceasvc/              # Service A public contract
+│   │   │   ├── go.mod                # ZERO dependencies
+│   │   │   ├── api.go                # Interface definition
+│   │   │   ├── dto.go                # Data transfer objects
+│   │   │   ├── errors.go             # Public error types
+│   │   │   └── inproc_client.go      # In-process client wrapper
+│   │   └── servicebsvc/              # Service B public contract
+│   ├── proto/                        # Protobuf schemas (optional)
+│   │   ├── buf.yaml
+│   │   ├── servicea/v1/servicea.proto
+│   │   └── serviceb/v1/serviceb.proto
+│   └── gen/                          # Generated code from protobuf
+│       ├── go/servicea/v1/
+│       └── ts/servicea/v1/
+├── services/
+│   ├── serviceasvc/                  # Service A
+│   │   ├── go.mod                    # Module: services/serviceasvc
+│   │   │                             # Dependencies: contracts/definitions/serviceasvc
+│   │   ├── cmd/serviceasvc/main.go   # Service entry point
+│   │   └── internal/                 # Private implementation
+│   └── servicebsvc/                  # Service B
+│       ├── go.mod                    # Module: services/servicebsvc
+│       │                             # Dependencies: contracts/definitions/serviceasvc
+│       └── internal/
+└── test/e2e/                         # End-to-end tests
+    └── go.mod                        # Module: test/e2e
+```
+
+### Module Dependency Rules
+
+**Enforced by Go compiler:**
+
+1. **Contract Definitions:** Zero dependencies
+   ```go
+   // contracts/definitions/serviceasvc/go.mod
+   module github.com/example/service-manager/contracts/definitions/serviceasvc
+   go 1.21
+   // NO require statements
+   ```
+
+2. **Services:** Can import contract definitions only
+   ```go
+   // services/servicebsvc/go.mod
+   module github.com/example/service-manager/services/servicebsvc
+   require (
+       github.com/.../contracts/definitions/serviceasvc v1.0.0
+   )
+   // Cannot import services/serviceasvc/internal (compiler error)
+   ```
+
+3. **Internal Packages:** Cannot be imported across module boundaries
+   - `services/serviceasvc/internal/` is inaccessible to `servicebsvc`
+   - Enforced by Go's internal package rules + separate modules
+
+## 2. Contract Definition Layer
+
+### Contract Structure
+
+**Location:** `contracts/definitions/serviceasvc/`
+
+**Purpose:** Public API contract that **defines** in-process communication with module independence.
+
+### Contract Components
+
+**1. Interface Definition** (`api.go`)
+
+```go
+package serviceasvc
+
+import "context"
+
+// ServiceA defines the public API contract
+type ServiceA interface {
+    GetEntityA(ctx context.Context, id string) (*ServiceADTO, error)
+    CreateEntityA(ctx context.Context, req *CreateEntityARequest) (*ServiceADTO, error)
+    UpdateEntityA(ctx context.Context, id string, req *UpdateEntityARequest) (*ServiceADTO, error)
+    ListEntityA(ctx context.Context, filter *ListEntityAFilter) ([]*ServiceADTO, error)
+}
+```
+
+**2. Data Transfer Objects** (`dto.go`)
+
+```go
+package serviceasvc
+
+type ServiceADTO struct {
+    ID        string
+    Name      string
+    Bio       string
+    AvatarURL string
+}
+
+type CreateEntityARequest struct {
+    Name string
+    Bio  string
+}
+
+type UpdateEntityARequest struct {
+    Name *string  // Optional fields use pointers
+    Bio  *string
+}
+
+type ListEntityAFilter struct {
+    Limit  int
+    Offset int
+}
+```
+
+**3. Error Types** (`errors.go`)
+
+```go
+package serviceasvc
+
+import "errors"
+
+var (
+    ErrEntityANotFound     = errors.New("entity not found")
+    ErrInvalidEntityAData  = errors.New("invalid entity data")
+    ErrServiceAUnavailable = errors.New("service unavailable")
+)
+```
+
+**4. In-Process Client** (`inproc_client.go`)
+
+```go
+package serviceasvc
+
+import "context"
+
+// InprocClient wraps any ServiceA implementation for in-process calls
+type InprocClient struct {
+    server ServiceA  // Interface, not concrete type
+}
+
+func NewInprocClient(server ServiceA) *InprocClient {
+    return &InprocClient{server: server}
+}
+
+func (c *InprocClient) GetEntityA(ctx context.Context, id string) (*ServiceADTO, error) {
+    return c.server.GetEntityA(ctx, id)
+}
+
+func (c *InprocClient) CreateEntityA(ctx context.Context, req *CreateEntityARequest) (*ServiceADTO, error) {
+    return c.server.CreateEntityA(ctx, req)
+}
+
+// ... other methods delegate to server interface
+```
+
+### Contract Dependency Rules
+
+**What contracts contain:**
+- Interface definitions
+- DTOs (pure data structures, no methods with business logic)
+- Error constants
+- InprocClient (thin wrapper)
+
+**What contracts NEVER contain:**
+- Business logic or validation
+- External dependencies (`go.mod` has zero `require` statements)
+- Imports of `internal/` packages
+- Helper functions or utilities
+- Global state or caches
+
+**Enforcement:**
+- `arch-test` tool validates zero dependencies
+- `arch-test` validates no `internal/` imports
+- Code review catches logical coupling
+
+## 3. Service Module Structure
+
+### Directory Layout
+
+```
+services/serviceasvc/
+├── go.mod                            # Independent module
+├── cmd/
+│   └── serviceasvc/
+│       └── main.go                   # Service entry point
+├── internal/                         # Private implementation
+│   ├── domain/                       # Domain layer (entities, value objects)
+│   ├── application/                  # Application layer (use cases, ports)
+│   ├── adapters/                     # Adapters layer (I/O boundaries)
+│   │   ├── inbound/                  # Inbound adapters
+│   │   │   ├── contracts/            # Contract adapter (InprocServer)
+│   │   │   │   └── inproc_server.go
+│   │   │   ├── http/                 # HTTP REST adapter
+│   │   │   └── connect/              # gRPC/Connect adapter
+│   │   └── outbound/                 # Outbound adapters
+│   │       ├── persistence/postgres/ # Database adapter
+│   │       └── serviceaclient/       # Client adapters
+│   └── infra/                        # Infrastructure (config, DB, etc.)
+├── test/
+│   └── contract/                     # Contract tests (provider side)
+└── README.md
+```
+
+### go.mod Configuration
+
+```go
+module github.com/example/service-manager/services/serviceasvc
+
+go 1.21
+
+require (
+    // Contract definition this service implements
+    github.com/.../contracts/definitions/serviceasvc v1.0.0
+
+    // Standard dependencies
+    github.com/lib/pq v1.10.9
+    golang.org/x/sync v0.3.0
+)
+```
+
+### Internal Package Organization
+
+**Domain Layer:** `internal/domain/`
+- Pure business logic
+- No external dependencies
+- Aggregate structure: `domain/{aggregate}/`
+
+**Application Layer:** `internal/application/`
+- Use cases and orchestration
+- Structure: `application/{command,query,ports}/`
+
+**Adapters Layer:** `internal/adapters/`
+- I/O boundaries
+- Structure: `adapters/{inbound,outbound}/`
+
+**Infrastructure Layer:** `internal/infra/`
+- Technical concerns (config, database, observability)
+
+## 4. Hexagonal Architecture Layers
+
+### Layer Dependencies
+
+```
+Domain (pure business logic)
     ↑
-Application Layer (depends on Domain, defines Ports)
+Application (use cases, ports)
     ↑
-Adapters Layer (implements Ports)
+Adapters (implementations)
     ↑
-Infrastructure Layer (wires everything)
+Infrastructure (wiring)
     ↑
 main.go (composition root)
 ```
 
-**Rule:** Dependencies point inward. Inner layers don't know about outer layers.
+**Rule:** Dependencies point inward. Inner layers never depend on outer layers.
 
-- Domain has zero external dependencies
-- Application depends on Domain + Ports (interfaces)
-- Adapters depend on Application ports + external libraries
-- Infrastructure knows about everything (wiring)
+### Domain Layer
 
-## Protobuf Contracts (optional)
+**Location:** `services/*/internal/domain/`
 
-See the file [protobuf-contracts.md](protobuf-contracts.md).
+**Components:**
 
-## Testing Strategy
+**Entities** (aggregate roots)
+```go
+// domain/user/user.go
+type User struct {
+    id             string
+    email          Email
+    hashedPassword HashedPassword
+    createdAt      time.Time
+    updatedAt      time.Time
+}
 
-See the file [testing-strategy.md](testing-strategy.md).
+func NewUser(id string, email Email, hashedPassword HashedPassword) *User {
+    return &User{
+        id:             id,
+        email:          email,
+        hashedPassword: hashedPassword,
+        createdAt:      time.Now(),
+        updatedAt:      time.Now(),
+    }
+}
 
-## Operational Concerns
+func (u *User) ChangePassword(oldPassword string, newPassword string) error {
+    // Verify old password
+    if !u.hashedPassword.Verify(oldPassword) {
+        return ErrInvalidPassword
+    }
 
-See the file [operational-concerns.md](operational-concerns.md).
+    // Business rule: Validate new password strength
+    if err := ValidatePasswordStrength(newPassword); err != nil {
+        return err
+    }
 
-## Decision Criteria
+    // Business rule: New password cannot be same as old
+    if u.hashedPassword.Verify(newPassword) {
+        return ErrPasswordMustBeDifferent
+    }
 
-### Use This Pattern When:
+    // Hash new password
+    newHash, err := HashPassword(newPassword)
+    if err != nil {
+        return err
+    }
 
-- **Medium team size (5-20 developers)**
-- **Clear service boundaries exist**
-- **Future distribution is likely (but not immediate)**
-- **Moderate-to-high domain complexity**
-- **Localhost development is acceptable**
-- **Want strong boundaries without operational complexity**
+    // Update entity state (persistence happens via repository.Save() in application layer)
+    u.hashedPassword = newHash
+    u.updatedAt = time.Now()
 
-### Don't Use This Pattern When:
+    return nil
+}
 
-- **Solo developer or simple CRUD** -> Use traditional monolith
-- **Services need independent scaling NOW** -> Use microservices
-- **Services need different languages/runtimes** -> Use polyglot microservices
-- **Hard real-time or zero-allocation hot paths** -> additional abstraction layers may be undesirable
-- **Strong compliance isolation required** -> Need physical separation
+// VerifyPassword checks if the given password matches
+func (u *User) VerifyPassword(password string) bool {
+    return u.hashedPassword.Verify(password)
+}
 
-### Comparison with Alternatives
-
-| Aspect | This Pattern | Simple Monolith | Microservices |
-|--------|-------------|-----------------|---------------|
-| Boundaries | Strong (compiler) | None | Strongest |
-| Performance | Excellent (in-proc) | Excellent | Good |
-| Dev Speed | Fast | Fastest | Slower |
-| Ops Complexity | Low | Very Low | Very High |
-| Migration Path | Easy | Hard | N/A |
-| Best For | 5-20 devs, likely distribution | 1-5 devs, simple domain | 20+ devs, known distribution |
-
-## Migration Scenarios
-
-See the file [migration-scenarios.md](migration-scenarios.md).
-
-## Failure Modes
-
-See the file [failure-modes.md](failure-modes.md).
-
-## Conclusion
-
-### Key Takeaways
-
-1. **Go Workspaces + Contract Definitions = Strong Boundaries + Flexibility**
-   - Compiler-enforced service isolation
-   - In-process performance when services are co-located
-   - Network protocols when services are distributed
-   - No "big bang" migration required
-
-2. **DDD and Hexagonal Architecture Within Services**
-   - Clean separation of concerns
-   - Testable business logic
-   - Flexible adapters for external systems
-
-3. **Protobuf is Optional**
-   - Start with Go interfaces in contract definitions
-   - Add protobuf when you need network transport
-   - Gradual adoption as needed
-
-**If you expect external clients or cross-team ownership, define protobuf first—even if you don’t enable network transport yet.**
-
-4. **This Pattern is a Middle Ground**
-   - Simpler than microservices
-   - Stronger than convention-based monoliths
-   - Flexible enough to evolve
-
-### When This Pattern Shines
-
-- **Growing SaaS products** - Start simple, scale when needed
-- **Internal platforms** - Multiple services, shared infrastructure
-- **Migration from monoliths** - Incremental extraction with safety
-- **Microservices consolidation** - Reduce complexity while keeping boundaries
-
-### Evolution Path
-
-```
-Traditional Monolith
-        ↓
-  (Extract services)
-        ↓
-Go Workspaces + Contract Definitions (in-process)
-        ↓
-  (Add Connect when needed)
-        ↓
-Go Workspaces + Contract Definitions (network)
-        ↓
-  (Deploy separately)
-        ↓
-Distributed Microservices
+// Getters
+func (u *User) ID() string { return u.id }
+func (u *User) Email() Email { return u.email }
+func (u *User) CreatedAt() time.Time { return u.createdAt }
+func (u *User) UpdatedAt() time.Time { return u.updatedAt }
 ```
 
-**Each step is incremental and low-risk.**
+**Value Objects**
+```go
+// domain/user/email.go
+type Email struct {
+    value string
+}
 
-### Final Recommendation
+func NewEmail(email string) (Email, error) {
+    email = strings.TrimSpace(strings.ToLower(email))
+    if !emailRegex.MatchString(email) {
+        return Email{}, errors.New("invalid email format")
+    }
+    return Email{value: email}, nil
+}
 
-If you're building a Go system with:
-- 5-20 developers
-- Clear service boundaries
-- Likely (but not immediate) need for distribution
-- Want strong architectural discipline
+func (e Email) String() string { return e.value }
+```
 
-**This pattern provides the best balance of simplicity, safety, and flexibility.**
+**Repository Interfaces** (ports owned by domain)
+```go
+// domain/user/repository.go
+type Repository interface {
+    Save(ctx context.Context, user *User) error
+    FindByID(ctx context.Context, id string) (*User, error)
+    FindByEmail(ctx context.Context, email Email) (*User, error)
+}
+```
 
-## References and Further Reading
+**Properties:**
+- No external dependencies (standard library only)
+- Fully testable without infrastructure
+- Encapsulates business rules
 
-### Go Workspaces
-- [Go Workspace Tutorial](https://go.dev/doc/tutorial/workspaces)
-- [Go Modules Reference](https://go.dev/ref/mod)
+### Application Layer
 
-### Project Layout
-- [Standard Go Project Layout](https://github.com/golang-standards/project-layout)
-- [Go DDD example application](https://github.com/ThreeDotsLabs/wild-workouts-go-ddd-example): Complete project to show how to apply DDD, Clean Architecture, and CQRS by practical refactoring.
+**Location:** `services/*/internal/application/`
 
-### Domain-Driven Design
-- *Domain-Driven Design* by Eric Evans
-- *Implementing Domain-Driven Design* by Vaughn Vernon
+**Structure:**
+- `command/` - Write operations
+- `query/` - Read operations
+- `ports/` - Interface definitions for adapters
+- `dto/` - Application data transfer objects
 
-### Hexagonal Architecture
-- [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/) by Alistair Cockburn
-- *Clean Architecture* by Robert C. Martin
+**Command Example**
+```go
+// application/command/login.go
+package command
 
-### Protocol Buffers & Connect
-- [Protocol Buffers Documentation](https://protobuf.dev/)
-- [Connect RPC](https://connectrpc.com/)
-- [Buf](https://buf.build/)
+import (
+    "context"
+    "errors"
+    "time"
 
-### Testing
-- *Growing Object-Oriented Software, Guided by Tests* by Steve Freeman & Nat Pryce
-- [Testing in Go](https://go.dev/doc/tutorial/add-a-test)
+    "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
+    "github.com/example/service-manager/services/servicebsvc/internal/domain/session"
+    "github.com/example/service-manager/services/servicebsvc/internal/domain/user"
+)
 
-### Tools
-- [arch-go](https://github.com/arch-go/arch-go): Architectural testing for Go.
-- [go-cleanarch](https://github.com/roblaszczak/go-cleanarch): Validating layer dependencies.
-- [godepgraph](https://github.com/kisielk/godepgraph): Visualizing dependency graphs.
-- [Dep-Tree](https://github.com/gabotechs/dep-tree): Visualize the entropy of a code base with a 3d force-directed graph.
-- [Goda](https://github.com/loov/goda): Go Dependency Analysis toolkit.
-- [go-callvis](https://github.com/ondrajz/go-callvis): A development tool to help visualize call graph of a Go program using interactive view.
+type LoginCommand struct {
+    userRepo       user.Repository      // Domain interface
+    sessionRepo    session.Repository   // Domain interface
+    authorClient   ports.AuthorClient   // Application port
+    logger         ports.Logger         // Application port
+}
+
+func NewLoginCommand(
+    userRepo user.Repository,
+    sessionRepo session.Repository,
+    authorClient ports.AuthorClient,
+    logger ports.Logger,
+) *LoginCommand {
+    return &LoginCommand{
+        userRepo:     userRepo,
+        sessionRepo:  sessionRepo,
+        authorClient: authorClient,
+        logger:       logger,
+    }
+}
+
+type LoginInput struct {
+    Email    string
+    Password string
+}
+
+type LoginOutput struct {
+    Token      string
+    UserID     string
+    AuthorName string
+    ExpiresAt  time.Time
+}
+
+func (c *LoginCommand) Execute(ctx context.Context, input LoginInput) (*LoginOutput, error) {
+    // 1. Validate with domain
+    email, err := user.NewEmail(input.Email)
+    if err != nil {
+        return nil, ErrInvalidCredentials
+    }
+
+    // 2. Fetch entity
+    u, err := c.userRepo.FindByEmail(ctx, email)
+    if err != nil {
+        return nil, err
+    }
+
+    // 3. Domain logic
+    if !u.VerifyPassword(input.Password) {
+        return nil, ErrInvalidCredentials
+    }
+
+    // 4. Create session
+    sess := session.New(u.ID(), 24*time.Hour)
+
+    // 5. Call external service (via port)
+    authorInfo, err := c.authorClient.GetAuthor(ctx, u.ID())
+    // Handle error with graceful degradation
+
+    // 6. Persist
+    if err := c.sessionRepo.Save(ctx, sess); err != nil {
+        return nil, err
+    }
+
+    // 7. Return output
+    return &LoginOutput{
+        Token:      sess.Token().String(),
+        UserID:     u.ID(),
+        AuthorName: authorInfo.Name,
+        ExpiresAt:  sess.ExpiresAt(),
+    }, nil
+}
+```
+
+**Port Definition**
+```go
+// application/ports/author_client.go
+type AuthorClient interface {
+    GetAuthor(ctx context.Context, authorID string) (*AuthorInfo, error)
+}
+
+type AuthorInfo struct {
+    ID        string
+    Name      string
+    Bio       string
+    AvatarURL string
+}
+```
+
+**Properties:**
+- Orchestrates domain objects
+- Defines ports (interfaces) for external dependencies
+- No knowledge of HTTP, databases, or frameworks
+- Transaction boundaries
+
+### Adapters Layer
+
+**Location:** `services/*/internal/adapters/`
+
+#### Inbound Adapters
+
+**Contract Adapter** (`adapters/inbound/contracts/inproc_server.go`)
+
+```go
+package contracts
+
+import (
+    "context"
+    "github.com/example/.../contracts/definitions/serviceasvc"
+    "github.com/example/.../services/serviceasvc/internal/application/command"
+    "github.com/example/.../services/serviceasvc/internal/application/query"
+)
+
+// InprocServer implements the contract interface
+type InprocServer struct {
+    getEntityAQuery  *query.GetEntityAQuery
+    createEntityACmd *command.CreateEntityACommand
+}
+
+// NewInprocServer returns the interface type (loose coupling)
+func NewInprocServer(
+    getEntityAQuery *query.GetEntityAQuery,
+    createEntityACmd *command.CreateEntityACommand,
+) serviceasvc.ServiceA {
+    return &InprocServer{
+        getEntityAQuery:  getEntityAQuery,
+        createEntityACmd: createEntityACmd,
+    }
+}
+
+func (s *InprocServer) GetEntityA(ctx context.Context, id string) (*serviceasvc.ServiceADTO, error) {
+    // 1. Call application layer
+    result, err := s.getEntityAQuery.Execute(ctx, query.GetEntityAInput{ID: id})
+    if err != nil {
+        // 2. Map domain errors to contract errors
+        if errors.Is(err, domain.ErrEntityANotFound) {
+            return nil, serviceasvc.ErrEntityANotFound
+        }
+        return nil, serviceasvc.ErrServiceAUnavailable
+    }
+
+    // 3. Map domain entity to contract DTO
+    return &serviceasvc.ServiceADTO{
+        ID:        result.Entity.ID(),
+        Name:      result.Entity.Name().String(),
+        Bio:       result.Entity.Bio(),
+        AvatarURL: result.Entity.AvatarURL(),
+    }, nil
+}
+```
+
+**HTTP Adapter** (`adapters/inbound/http/handlers/login.go`)
+
+```go
+package handlers
+
+import (
+    "encoding/json"
+    "net/http"
+    "github.com/example/.../internal/application/command"
+)
+
+type LoginHandler struct {
+    loginCmd *command.LoginCommand
+}
+
+type LoginRequest struct {
+    Email    string `json:"email"`
+    Password string `json:"password"`
+}
+
+type LoginResponse struct {
+    Token     string `json:"token"`
+    UserID    string `json:"user_id"`
+    ExpiresAt int64  `json:"expires_at"`
+}
+
+func (h *LoginHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    // 1. Parse HTTP request
+    var req LoginRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, "invalid request", http.StatusBadRequest)
+        return
+    }
+
+    // 2. Call application layer
+    output, err := h.loginCmd.Execute(r.Context(), command.LoginInput{
+        Email:    req.Email,
+        Password: req.Password,
+    })
+    if err != nil {
+        // 3. Map errors to HTTP status codes
+        switch {
+        case errors.Is(err, command.ErrInvalidCredentials):
+            http.Error(w, "invalid credentials", http.StatusUnauthorized)
+        default:
+            http.Error(w, "internal error", http.StatusInternalServerError)
+        }
+        return
+    }
+
+    // 4. Return HTTP response
+    resp := LoginResponse{
+        Token:     output.Token,
+        UserID:    output.UserID,
+        ExpiresAt: output.ExpiresAt.Unix(),
+    }
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(resp)
+}
+```
+
+#### Outbound Adapters
+
+**Database Adapter** (`adapters/outbound/persistence/postgres/user_repository.go`)
+
+```go
+package postgres
+
+import (
+    "context"
+    "database/sql"
+    "github.com/example/.../internal/domain/user"
+)
+
+type UserRepository struct {
+    db *sql.DB
+}
+
+func NewUserRepository(db *sql.DB) *UserRepository {
+    return &UserRepository{db: db}
+}
+
+func (r *UserRepository) Save(ctx context.Context, u *user.User) error {
+    query := `
+        INSERT INTO users (id, email, hashed_password, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (id) DO UPDATE SET
+            email = EXCLUDED.email,
+            hashed_password = EXCLUDED.hashed_password,
+            updated_at = EXCLUDED.updated_at
+    `
+    _, err := r.db.ExecContext(ctx, query,
+        u.ID(),
+        u.Email().String(),
+        u.HashedPassword().String(),
+        u.CreatedAt(),
+        u.UpdatedAt(),
+    )
+    return err
+}
+
+func (r *UserRepository) FindByEmail(ctx context.Context, email user.Email) (*user.User, error) {
+    query := `SELECT id, email, hashed_password, created_at, updated_at FROM users WHERE email = $1`
+
+    var id, emailStr, passwordStr string
+    var createdAt, updatedAt time.Time
+
+    err := r.db.QueryRowContext(ctx, query, email.String()).Scan(&id, &emailStr, &passwordStr, &createdAt, &updatedAt)
+    if errors.Is(err, sql.ErrNoRows) {
+        return nil, user.ErrUserNotFound
+    }
+    if err != nil {
+        return nil, err
+    }
+
+    // Reconstruct domain entity
+    e, _ := user.NewEmail(emailStr)
+    p := user.NewHashedPassword(passwordStr)
+    return user.Reconstruct(id, e, p, createdAt, updatedAt), nil
+}
+```
+
+**Service Client Adapter** (`adapters/outbound/authorclient/inproc/client.go`)
+
+```go
+package inproc
+
+import (
+    "context"
+    "github.com/example/.../contracts/definitions/authorservice"
+    "github.com/example/.../internal/application/ports"
+)
+
+// Client implements ports.AuthorClient using the contract definition
+type Client struct {
+    contract authorservice.AuthorService
+}
+
+func NewClient(contract authorservice.AuthorService) *Client {
+    return &Client{contract: contract}
+}
+
+func (c *Client) GetAuthor(ctx context.Context, authorID string) (*ports.AuthorInfo, error) {
+    // Call contract
+    dto, err := c.contract.GetAuthor(ctx, authorID)
+    if err != nil {
+        // Map contract errors to application errors
+        if errors.Is(err, authorservice.ErrAuthorNotFound) {
+            return nil, ports.ErrAuthorNotFound
+        }
+        return nil, ports.ErrAuthorServiceDown
+    }
+
+    // Map contract DTO to application DTO
+    return &ports.AuthorInfo{
+        ID:        dto.ID,
+        Name:      dto.Name,
+        Bio:       dto.Bio,
+        AvatarURL: dto.AvatarURL,
+    }, nil
+}
+```
+
+### Infrastructure Layer
+
+**Location:** `services/*/internal/infra/`
+
+**Configuration:** `infra/config/config.go`
+
+Each service loads its own configuration via:
+
+```go
+cfg, err := config.Load()
+```
+
+**Pattern:** 3-layer configuration (defaults → environment-specific → secrets)
+
+**Layers:**
+1. `defaults.yaml` - Base configuration (embedded)
+2. `${APP_ENV}.yaml` - Environment overrides (dev.yaml, prod.yaml - embedded)
+3. Environment variables - Secrets and runtime overrides
+
+**Environment Variables:**
+
+```bash
+# Required (secrets - never in files)
+DB_PASSWORD=secret_password
+
+# Optional (runtime overrides)
+APP_ENV=prod              # Selects prod.yaml
+HTTP_PORT=:8080
+DB_HOST=db.prod.internal
+DB_USER=service_user
+```
+
+**Example:**
+
+```bash
+# Development
+APP_ENV=dev DB_PASSWORD=dev_secret go run ./cmd/servicea
+
+# Production
+APP_ENV=prod DB_PASSWORD=prod_secret DB_HOST=db.internal go run ./cmd/servicea
+```
+
+For encrypted environment variables you can use the [Mise SOPS plugin](https://mise.jdx.dev/environments/secrets/sops.html).
+
+## 5. Runtime Orchestration
+
+### Composition Root (main.go)
+
+**Location:** `cmd/monolith/main.go` or service-specific `cmd/serviceasvc/main.go`
+
+**Structure:**
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
+
+    "golang.org/x/sync/errgroup"
+
+    // Contract definitions
+    authorservice "github.com/.../contracts/definitions/authorservice"
+
+    // Service configs
+    authorconfig "github.com/.../services/authorservice/config"
+    authconfig "github.com/.../services/authservice/config"
+
+    // Service adapters
+    authoradapters "github.com/.../services/authorservice/internal/adapters/inbound/contracts"
+    authorhttp "github.com/.../services/authorservice/internal/adapters/inbound/http"
+    authadapters "github.com/.../services/authservice"
+    authhttp "github.com/.../services/authservice/internal/adapters/inbound/http"
+)
+
+func main() {
+    // 1. Context with signal handling
+    ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer cancel()
+
+    // 2. Load configurations
+    authorCfg, _ := authorconfig.Load()
+    authCfg, _ := authconfig.Load()
+
+    // 3. Initialize provider service
+    authorServer := authoradapters.NewInprocServer(authorCfg.DB, authorCfg.Logger)
+
+    // 4. Wrap with contract client
+    authorClient := authorservice.NewInprocClient(authorServer)
+
+    // 5. Initialize consumer service
+    authService := authadapters.New(authCfg, authorClient)
+
+    // 6. Create HTTP handlers
+    authorHTTPHandler := authorhttp.NewHandler(authorCfg)
+    authHTTPHandler := authhttp.NewHandler(authCfg, authService)
+
+    // 7. Run services via errgroup (shared fate supervision)
+    // Note: See "Worker Service Pattern" section for non-HTTP services
+    g, gCtx := errgroup.WithContext(ctx)
+
+    // Start Author Service HTTP server
+    g.Go(func() error {
+        server := &http.Server{
+            Addr:    authorCfg.HTTPPort,
+            Handler: authorHTTPHandler,
+        }
+
+        // Graceful shutdown watcher
+        go func() {
+            <-gCtx.Done()  // Fires when ANY service fails
+            log.Println("Shutting down Author Service...")
+            shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+            defer cancel()
+            server.Shutdown(shutdownCtx)
+        }()
+
+        log.Printf("Author Service listening on %s", authorCfg.HTTPPort)
+        if err := server.ListenAndServe(); err != http.ErrServerClosed {
+            return err  // Error triggers shutdown of ALL services
+        }
+
+        return nil
+    })
+
+    // Start Auth Service HTTP server
+    g.Go(func() error {
+        server := &http.Server{
+            Addr:    authCfg.HTTPPort,
+            Handler: authHTTPHandler,
+        }
+
+        // Graceful shutdown watcher
+        go func() {
+            <-gCtx.Done()  // Fires when ANY service fails
+            log.Println("Shutting down Auth Service...")
+            shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+            defer cancel()
+            server.Shutdown(shutdownCtx)
+        }()
+
+        log.Printf("Auth Service listening on %s", authCfg.HTTPPort)
+        if err := server.ListenAndServe(); err != http.ErrServerClosed {
+            return err  // Error triggers shutdown of ALL services
+        }
+
+        return nil
+    })
+
+    // 7. Wait for all services (blocks until error or signal)
+    if err := g.Wait(); err != nil {
+        log.Fatalf("Monolith shutdown: %v", err)
+    }
+
+    log.Println("Monolith shutdown gracefully")
+}
+```
+
+**Wiring Flow:**
+
+1. `authorServer := NewInprocServer(...)` - Creates server (returns `AuthorService` interface)
+2. `authorClient := NewInprocClient(authorServer)` - Wraps server in client
+3. `authService := New(cfg, authorClient)` - Injects client into consumer
+4. Services run via `errgroup` (shared fate supervision)
+
+### Supervision with errgroup
+
+**Pattern:** Shared fate architecture
+
+**Definition:** All services share the same fate - if one fails, all shut down together and the process exits.
+
+Concrete example when Service A fails:
+
+- **WITHOUT shared fate**
+  - Service A: Crashed (for exemple database connection fails)
+  - Service B: Running (but calls to Service A fail)
+  - Service C: Running (partially functional)
+  - Result: Zombie monolith in undefined state
+- **WITH shared fate (errgroup)**
+  - Service A: Returns error
+  - errgroup: Cancels context for all services
+  - Service B: Detects gCtx.Done() → graceful shutdown
+  - Service C: Detects gCtx.Done() → graceful shutdown
+  - Process: Exits
+  - Kubernetes: Restarts entire pod with clean state
+
+**Implementation:**
+
+```go
+g, gCtx := errgroup.WithContext(ctx)
+
+// Start Service A
+g.Go(func() error {
+    server := &http.Server{Addr: ":8081", Handler: handler}
+
+    // Graceful shutdown watcher
+    go func() {
+        <-gCtx.Done()  // Fires when ANY service fails or signal received
+        shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+        server.Shutdown(shutdownCtx)
+    }()
+
+    // Blocking service until shutdown
+    if err := server.ListenAndServe(); err != http.ErrServerClosed {
+        return err  // Error propagates to errgroup → cancels gCtx
+    }
+
+    return nil
+})
+
+// Start Service B (same pattern)
+g.Go(func() error {
+    // ... similar structure ...
+})
+
+// Wait for all services (blocks until error or signal)
+if err := g.Wait(); err != nil {
+    log.Fatal(err)  // Exit process → orchestrator restarts
+}
+```
+
+**Why this approach:**
+- **Clean state:** Either all services healthy or none running (no partial failures)
+- **Simpler:** No complex health checks or partial failure handling
+- **Reliable:** Orchestrator (Kubernetes/Docker/SystemD) detects exit and restarts fresh pod
+- **Prevents corruption:** Sick service doesn't partially corrupt shared resources
+
+**Alternative:** For fine-grained fault tolerance, use [github.com/thejerf/suture](https://github.com/thejerf/suture) for Erlang-style supervision trees.
+
+### Worker Service Pattern (Non-Blocking Services)
+
+Services without HTTP servers (background workers, message consumers, cache warmers) need a different structure. They initialize resources, then block until shutdown.
+
+**Worker Service Structure:**
+
+```go
+// services/workerservice/internal/worker/worker.go
+package worker
+
+import (
+    "context"
+    "database/sql"
+    "fmt"
+    "log"
+    "time"
+)
+
+type Worker struct {
+    db     *sql.DB
+    config *Config
+}
+
+func New(config *Config) *Worker {
+    return &Worker{config: config}
+}
+
+// Run initializes resources and blocks until context is cancelled
+func (w *Worker) Run(ctx context.Context) error {
+    // 1. Initialize database connection
+    db, err := sql.Open("postgres", w.config.DatabaseURL)
+    if err != nil {
+        return fmt.Errorf("failed to connect to database: %w", err)
+    }
+    w.db = db
+    defer db.Close()
+
+    // 2. Verify connection is ready
+    if err := db.PingContext(ctx); err != nil {
+        return fmt.Errorf("database ping failed: %w", err)
+    }
+
+    log.Println("Worker service started (database connected)")
+
+    // 3. Optional: Start background jobs
+    go w.processQueue(ctx)
+
+    // 4. Block until context is cancelled
+    <-ctx.Done()
+
+    // 5. Cleanup on shutdown
+    log.Println("Worker service shutting down...")
+    shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    // Wait for in-flight work to complete
+    // Close connections, flush buffers, etc.
+    if err := db.Close(); err != nil {
+        log.Printf("Error closing database: %v", err)
+    }
+
+    log.Println("Worker service shutdown complete")
+    return nil
+}
+
+func (w *Worker) processQueue(ctx context.Context) {
+    ticker := time.NewTicker(10 * time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            // Process work from queue
+            w.doWork(ctx)
+        }
+    }
+}
+
+func (w *Worker) doWork(ctx context.Context) {
+    // Business logic here
+}
+```
+
+**Using Worker in main.go:**
+
+```go
+// cmd/monolith/main.go
+
+// Initialize worker service
+workerService := worker.New(workerCfg)
+
+// Start via errgroup (same as HTTP services)
+g.Go(func() error {
+    return workerService.Run(gCtx)
+})
+```
+
+**Key Points:**
+
+1. **`Run(ctx)` method:** Provides standard interface like HTTP servers
+2. **Initialize resources:** Database connections, message queue clients, etc.
+3. **Block on `<-ctx.Done()`:** Keeps goroutine alive until shutdown
+4. **Graceful cleanup:** Close connections, wait for in-flight work
+5. **main.go stays clean:** Just calls `workerService.Run(gCtx)`
+
+**Pattern works for:**
+- Background job processors
+- Message queue consumers (RabbitMQ, Kafka)
+- Cache warmers
+- Database connection pools
+- Any service needing initialization without HTTP
+
+## 6. Protobuf Integration
+
+### When to Use Protobuf
+
+Use protobuf when services need network transport. Skip for in-process only.
+
+### Directory Structure
+
+```
+contracts/
+├── proto/                  # Source of truth (clean)
+│   ├── buf.yaml
+│   └── servicea/v1/
+│       └── servicea.proto
+└── gen/                    # Generated code (do not edit)
+    ├── go/servicea/v1/
+    │   ├── servicea.pb.go
+    │   └── serviceav1connect/servicea.connect.go
+    └── ts/servicea/v1/
+```
+
+### Protobuf Definition
+
+**File:** `contracts/proto/servicea/v1/servicea.proto`
+
+```protobuf
+syntax = "proto3";
+package servicea.v1;
+option go_package = "github.com/.../contracts/gen/go/servicea/v1;serviceav1";
+
+message EntityA {
+  string id = 1;
+  string name = 2;
+  string bio = 3;
+  string avatar_url = 4;
+}
+
+service ServiceAService {
+  rpc GetEntityA(GetEntityARequest) returns (GetEntityAResponse);
+  rpc CreateEntityA(CreateEntityARequest) returns (CreateEntityAResponse);
+}
+```
+
+### Code Generation
+
+**File:** `contracts/buf.gen.yaml`
+
+```yaml
+version: v1
+plugins:
+  - plugin: go
+    out: gen/go
+    opt: paths=source_relative
+  - plugin: connect-go
+    out: gen/go
+    opt: paths=source_relative
+```
+
+**Commands:**
+
+```bash
+# Generate code from proto
+cd contracts
+buf generate
+
+# Lint proto files
+buf lint
+
+# Check for breaking changes
+buf breaking --against '.git#branch=main'
+```
+
+### Using Generated Code
+
+**Contract Definition with Protobuf:**
+
+```go
+// contracts/definitions/serviceasvc/dto.go
+import serviceav1 "github.com/.../contracts/gen/go/servicea/v1"
+
+// Use generated protobuf types
+type ServiceADTO = serviceav1.EntityA
+```
+
+**Network Client:**
+
+```go
+// adapters/outbound/authorclient/connect/client.go
+import (
+    serviceav1connect "github.com/.../contracts/gen/go/servicea/v1/serviceav1connect"
+    "connectrpc.com/connect"
+)
+
+type Client struct {
+    client serviceav1connect.ServiceAServiceClient
+}
+
+func NewClient(baseURL string) *Client {
+    httpClient := &http.Client{Timeout: 5 * time.Second}
+    client := serviceav1connect.NewServiceAServiceClient(httpClient, baseURL)
+    return &Client{client: client}
+}
+
+func (c *Client) GetAuthor(ctx context.Context, id string) (*ports.AuthorInfo, error) {
+    req := connect.NewRequest(&serviceav1.GetEntityARequest{Id: id})
+    resp, err := c.client.GetEntityA(ctx, req)
+    // Handle response
+}
+```
+
+## 7. Testing & Operations
+
+### Test Organization
+
+**Unit Tests:** Co-located with code (`*_test.go`)
+- Location: `internal/domain/**/*_test.go`, `internal/application/**/*_test.go`
+- Purpose: Test business logic in isolation
+- Dependencies: None (pure functions)
+
+**Integration Tests:** Co-located with adapters
+- Location: `internal/adapters/**/*_test.go`
+- Purpose: Test adapters with real infrastructure
+- Dependencies: Real database, cache, services
+
+**Contract Tests:** Per-service provider tests
+- Location: `services/*/test/contract/`
+- Purpose: Verify service implements its contract correctly
+- Provider tests its own contract, not consumer
+
+**E2E Tests:** Root-level cross-service tests
+- Location: `test/e2e/`
+- Purpose: Complete user journeys across all services
+- Dependencies: Full system running with services' composition
+
+### Operational Commands
+
+```bash
+# Run full workspace tests
+go test ./...
+
+# Build all services
+go build ./services/...
+
+# Run specific service
+go run ./services/serviceasvc/cmd/serviceasvc
+
+# Verify module dependencies
+go mod verify
+
+# Update all dependencies
+go get -u ./...
+
+# Tidy all dependencies
+go mod tidy
+```
+
+### Architecture Validation
+
+**Tool:** `arch-test` (optional, in `tools/arch-test/`)
+
+```bash
+# Validate architectural boundaries
+go run ./tools/arch-test
+
+# Checks:
+# - Contract definitions have zero dependencies
+# - No service imports another service's internal/
+# - Dependency flow rules (domain <- application <- adapters)
+```
+
+## Deployment
+
+**Monolith Mode:**
+- Build single binary: `go build ./cmd/monolith`
+- Deploy as single container
+- All services run in one process
+
+**Distributed Mode:**
+
+To distribute services, swap in-process clients for network clients in `main.go`. Only the wiring changes; application layer stays unchanged.
+
+**Before (In-Process):**
+```go
+// cmd/monolith/main.go
+
+import (
+    authorservice "github.com/.../contracts/definitions/authorservice"
+    authoradapters "github.com/.../services/authorservice/internal/adapters/inbound/contracts"
+    authorclientInproc "github.com/.../services/authservice/internal/adapters/outbound/authorclient/inproc"
+)
+
+// Create in-process server
+authorServer := authoradapters.NewInprocServer(authorCfg)
+
+// Wrap in contract client
+authorContract := authorservice.NewInprocClient(authorServer)
+
+// Wrap in adapter
+authorClient := authorclientInproc.NewClient(authorContract)
+
+// Inject authorClient into service
+authService := authservice.New(authCfg, authorClient)
+```
+
+**After (Network/Connect):**
+
+*Author Service (provider):*
+```go
+// cmd/authorservice/main.go (separate binary)
+
+import (
+    authorconnect "github.com/.../services/authorservice/internal/adapters/inbound/connect"
+)
+
+// Create Connect server (HTTP handler exposing the service)
+authorConnectHandler := authorconnect.NewHandler(authorCfg)
+
+// Start HTTP server
+g.Go(func() error {
+    server := &http.Server{
+        Addr:    ":8081",
+        Handler: authorConnectHandler,  // Connect HTTP endpoint
+    }
+    return server.ListenAndServe()
+})
+```
+
+*Auth Service (consumer):*
+```go
+// cmd/authservice/main.go (separate binary)
+
+import (
+    authorclientConnect "github.com/.../services/authservice/internal/adapters/outbound/authorclient/connect"
+)
+
+// Create network client pointing to Author Service URL
+authorClient := authorclientConnect.NewClient("https://author-service.internal:8081")
+
+// Inject authorClient into service (same interface!)
+authService := authservice.New(authCfg, authorClient)
+```
+
+**What changed:**
+
+- *Provider side (authorservice):*
+  - Inbound adapter: `inbound/contracts` → `inbound/connect`
+  - Server: InprocServer → Connect HTTP server
+- *Consumer side (authservice):*
+  - Outbound adapter: `outbound/authorclient/inproc` → `outbound/authorclient/connect`
+  - Client: InprocClient(server) → Connect client with URL
+- *Application layer:* No changes - same interfaces, same business logic
+
+**Deployment:**
+```bash
+# Build separate binaries
+go build -o bin/authorservice ./services/authorservice/cmd/authorservice
+go build -o bin/authservice ./services/authservice/cmd/authservice
+
+# Deploy as separate containers
+docker run -e APP_ENV=prod authorservice
+docker run -e APP_ENV=prod -e AUTHOR_SERVICE_URL=https://author-service authservice
+```
