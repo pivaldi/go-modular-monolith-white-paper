@@ -811,7 +811,7 @@ APP_ENV=dev DB_PASSWORD=dev_secret go run ./cmd/servicea
 APP_ENV=prod DB_PASSWORD=prod_secret DB_HOST=db.internal go run ./cmd/servicea
 ```
 
-For encrypted environment variables you can use the [Mise SOPS plugin](https://mise.jdx.dev/environments/secrets/sops.html).
+For encrypted environment variables you can use the [Mise SOPS plugin](https://mise.jdx.dev/environments/secrets/sops.html) or [ENVeil](https://github.com/GreatScott/enveil).
 
 ## 5. Runtime Orchestration
 

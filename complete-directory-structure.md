@@ -24,10 +24,12 @@ service-manager/
 │   │   │   ├── README.md     # Contract usage documentation
 │   │   │   │
 │   │   │   ├── api.go        # Public service interface
+│   │   │   │   #[code go]
 │   │   │   │   # type ServiceAService interface {
 │   │   │   │   #   GetServiceA(ctx, id) (*ServiceADTO, error)
 │   │   │   │   #   CreateServiceA(ctx, req) (*ServiceADTO, error)
 │   │   │   │   # }
+│   │   │   │   #[endcode]
 │   │   │   │
 │   │   │   ├── dto.go        # Domain-friendly DTOs
 │   │   │   │   # type ServiceADTO struct { ID, Name, Bio string }
@@ -147,9 +149,11 @@ service-manager/
 │   │       │       │         # Implemented by adapters
 │   │       │       │
 │   │       │       ├── servicea_client.go  # Outbound port
+│   │       │       │   #[code go]
 │   │       │       │   # type ServiceAClient interface {
 │   │       │       │   #   GetEntityA(ctx, id) (*EntityA, error)
 │   │       │       │   # }
+│   │       │       │   #[endcode]
 │   │       │       │
 │   │       │       ├── cache.go          # Outbound port
 │   │       │       ├── logger.go         # Outbound port

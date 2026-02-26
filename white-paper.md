@@ -4,8 +4,10 @@
 
 ## Table of Contents
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
+**Table of Contents**
 
-- [Go Modular Monolith: Architecture White Paper](#go-modular-monolith-architecture-white-paper)
+- [Go Workspaces Modular Monolith with "Pure" Contract Definitions](#go-workspaces-modular-monolith-with-pure-contract-definitions)
+  - [Table of Contents](#table-of-contents)
   - [Introduction](#introduction)
     - [The Monolith vs Microservices Dilemma](#the-monolith-vs-microservices-dilemma)
     - [What This Pattern Provides](#what-this-pattern-provides)
@@ -25,6 +27,11 @@
   - [Architecture Deep Dive](#architecture-deep-dive)
     - [Complete Directory Structure](#complete-directory-structure)
     - [Key Architectural Decisions](#key-architectural-decisions)
+      - [1. Why Multiple Go Modules?](#1-why-multiple-go-modules)
+      - [2. Why Contract Definitions?](#2-why-contract-definitions)
+      - [3. Why Optional Protobuf?](#3-why-optional-protobuf)
+      - [4. Why Go Workspaces?](#4-why-go-workspaces)
+      - [5. Shared Libraries Within the Workspace](#5-shared-libraries-within-the-workspace)
   - [Contract Definition Pattern](#contract-definition-pattern)
   - [Runtime Orchestration: The Supervisor Pattern](#runtime-orchestration-the-supervisor-pattern)
     - [The Monolith Composition Root Managed by `errgroup`](#the-monolith-composition-root-managed-by-errgroup)
@@ -58,6 +65,7 @@
     - [Final Recommendation](#final-recommendation)
   - [References and Further Reading](#references-and-further-reading)
     - [Go Workspaces](#go-workspaces)
+    - [Project Layout](#project-layout)
     - [Domain-Driven Design](#domain-driven-design)
     - [Hexagonal Architecture](#hexagonal-architecture)
     - [Protocol Buffers & Connect](#protocol-buffers--connect)
@@ -314,7 +322,7 @@ See the file [complete-directory-structure.md](complete-directory-structure.md).
 
 ### Key Architectural Decisions
 
-**1. Why Multiple Go Modules?**
+#### 1. Why Multiple Go Modules?
 
 Each service is an independent Go module because:
 - **Compiler enforces boundaries** - Service A physically cannot import Service B's `internal/` package
@@ -323,7 +331,7 @@ Each service is an independent Go module because:
 - **Clear ownership** - Each module has its own `go.mod` showing dependencies
 - **Future extraction** - Already a separate module, easy to move to separate repo
 
-**2. Why Contract Definitions?**
+#### 2. Why Contract Definitions?
 
 Contract definitions provide truly independent service boundaries:
 - **Public API definition** - Clear contract using Go interfaces
@@ -336,7 +344,7 @@ Contract definitions provide truly independent service boundaries:
 
 **Key architectural principle:** Contract definitions contain ONLY interfaces, DTOs, errors, and thin client wrappers. All implementations (including InprocServer) live in service internal adapters, where they can access the service's application layer.
 
-**3. Why Optional Protobuf?**
+#### 3. Why Optional Protobuf?
 
 Protobuf contracts are generated but not required for in-process communication:
 - Use **Go DTOs in contract definitions** during development (simple, idiomatic)
@@ -344,7 +352,7 @@ Protobuf contracts are generated but not required for in-process communication:
 - Contract definition can use either protobuf types or custom Go types
 - Gradual adoption - start simple, add complexity when needed
 
-**4. Why Go Workspaces?**
+#### 4. Why Go Workspaces?
 
 `go.work` coordinates independent modules:
 - **Monorepo experience** - Feels like single codebase
@@ -353,6 +361,123 @@ Protobuf contracts are generated but not required for in-process communication:
 - **Single test command** - `go test ./...` works across workspace
 - **Replace directives** - Local overrides for development
 
+**Critical principle:** The workspace file (`go.work`) is **not** a personal developer convenience tool—it is a **committed architectural artifact** that explicitly defines which modules constitute the monolith. It acts as the orchestrator at the code level, just as the composition root orchestrates the runtime.
+
+#### 5. Shared Libraries Within the Workspace
+
+Multiple services often need common functionality (logging, metrics, auth utilities, domain primitives). The workspace orchestrator pattern provides a disciplined approach to shared code that maintains architectural boundaries while enabling fast iteration.
+
+**Structure:**
+
+```
+/monorepo
+├── go.work                    # Architectural orchestrator (COMMITTED)
+├── libs/
+│   └── company-shared/
+│       ├── .git/             # Git submodule (github.com/company/shared)
+│       ├── go.mod            # module github.com/company/shared
+│       └── logging/
+│           └── logger.go
+└── services/
+    ├── servicea/
+    │   └── go.mod            # require github.com/company/shared v1.2.3
+    └── serviceb/
+        └── go.mod            # require github.com/company/shared v1.0.0
+```
+
+**Workspace Configuration:**
+
+```go
+// go.work - committed to version control
+go 1.24
+
+use (
+    ./contracts
+    ./libs/company-shared     // Part of monolith orchestration
+    ./services/servicea
+    ./services/serviceb
+)
+```
+
+**Why This Maintains Architectural Discipline:**
+
+1. **Explicit dependencies** - Each service's `go.mod` declares library version requirements
+2. **Compiler boundaries** - Library is separate module; cannot import service internals
+3. **Independent versioning** - Service A can use v1.2.3 while Service B uses v1.0.0
+4. **Git submodule** - Library has independent git history and release cycle
+5. **Published externally** - Library is `go get`-able; workspace just provides local override
+6. **Escape hatch** - Can remove from workspace and fall back to `go get` if conflicts arise
+
+**Development Workflow:**
+
+```bash
+# Local development - workspace handles module resolution
+cd /monorepo
+go test ./...                  # Tests across all workspace modules
+
+# Update shared library
+cd libs/company-shared
+git checkout -b feature/new-logging-level
+# Make changes
+go test ./...
+git commit -m "Add debug logging level"
+git tag v1.3.0
+git push origin v1.3.0
+
+# Update submodule reference in parent repo
+cd ../..
+git add libs/company-shared
+git commit -m "Update shared library to v1.3.0"
+
+# Service updates its dependency (when ready)
+cd services/servicea
+go get github.com/company/shared@v1.3.0
+go mod tidy
+```
+
+**Escape Hatch: Switching to External-Only Dependency:**
+
+If version conflicts or organizational changes make the workspace approach problematic, simply remove the library from `go.work`:
+
+```go
+// go.work
+use (
+    ./contracts
+    // ./libs/company-shared  ← Remove from workspace
+    ./services/servicea
+    ./services/serviceb
+)
+```
+
+Services continue working immediately—they're already using `go get github.com/company/shared@version`. The workspace was just providing a local override for development convenience.
+
+**Best Practices:**
+
+1. **Keep libraries focused** - Shared code should be genuinely reusable utilities, not domain logic
+2. **Version discipline** - Tag releases and update service dependencies explicitly
+3. **Independent testing** - Library must have its own comprehensive test suite
+4. **Clear ownership** - Assign library maintainers (can be rotating responsibility)
+5. **Breaking changes** - Follow semantic versioning; maintain backward compatibility
+6. **Documentation** - Library needs README, examples, and godoc comments
+7. **CI validation** - Test library independently and with all services that depend on it
+
+**Example Libraries Appropriate for This Pattern:**
+
+- `libs/observability` - Structured logging, metrics, tracing helpers
+- `libs/config` - Configuration loading and validation
+- `libs/auth` - JWT validation, auth middleware
+- `libs/middleware` - Common HTTP middleware (CORS, rate limiting)
+- `libs/testutil` - Testing helpers and fixtures
+- `libs/types` - Common value objects (Money, Email, PhoneNumber)
+
+**Example Code That Should NOT Be Shared:**
+
+- Domain entities (User, Order, Product) - these belong to specific services
+- Use case logic - orchestration should stay in service application layers
+- Service-specific business rules - even if similar, duplication is better
+- Database schemas - services should own their persistence
+
+**Key Insight:** The workspace orchestrator enables disciplined code sharing without sacrificing architectural boundaries. It's the middle ground between "no shared code" (excessive duplication) and "shared kernel" (tight coupling).
 
 ## Contract Definition Pattern
 
