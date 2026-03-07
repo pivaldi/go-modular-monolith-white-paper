@@ -1278,6 +1278,8 @@ go mod tidy
 
 **Tool:** `arch-test` (optional, in `tools/arch-test/`)
 
+See [arch-test implementation](./arch-test.md)
+
 ```bash
 # Validate architectural boundaries
 go run ./tools/arch-test
@@ -1286,6 +1288,7 @@ go run ./tools/arch-test
 # - Contract definitions have zero dependencies
 # - No service imports another service's internal/
 # - Dependency flow rules (domain <- application <- adapters)
+# - libs or pkg directory never imports services
 ```
 
 ## Deployment
