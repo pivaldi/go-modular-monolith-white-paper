@@ -2,14 +2,14 @@
 
 A contract definition is a tiny, zero-dependency Go module that defines
 the public interface of one module. Any other module that needs to call
-`foosvc` imports only this contract — never `modules/foosvc/internal/`.
+`foomod` imports only this contract — never `modules/foomod/internal/`.
 
 ## The Four Files
 
 Every contract definition consists of exactly four files:
 
 ```
-contracts/definitions/foosvc/
+contracts/definitions/foomod/
 ├── go.mod           ← zero dependencies
 ├── api.go           ← the service interface
 ├── dto.go           ← request/response types
@@ -20,7 +20,7 @@ contracts/definitions/foosvc/
 ### `go.mod` — Zero Dependencies
 
 ```go
-module github.com/example/mmw-contracts/definitions/foosvc
+module github.com/example/mmw-contracts/definitions/foomod
 
 go 1.23
 // NO require statements. Ever.
@@ -33,12 +33,12 @@ contract because they don't have that dependency.
 ### `api.go` — The Interface
 
 ```go
-// contracts/definitions/foosvc/api.go
-package foosvc
+// contracts/definitions/foomod/api.go
+package foomod
 
 import "context"
 
-// FooService is the public contract for the foosvc module.
+// FooService is the public contract for the foomod module.
 // All callers depend on this interface, never on the concrete implementation.
 type FooService interface {
     CreateFoo(ctx context.Context, req CreateFooRequest) (*FooResponse, error)
@@ -52,8 +52,8 @@ type FooService interface {
 ### `dto.go` — Request/Response Types
 
 ```go
-// contracts/definitions/foosvc/dto.go
-package foosvc
+// contracts/definitions/foomod/dto.go
+package foomod
 
 type CreateFooRequest struct {
     Title    string
@@ -92,15 +92,15 @@ type FooResponse struct {
 ### `errors.go` — Public Error Sentinels
 
 ```go
-// contracts/definitions/foosvc/errors.go
-package foosvc
+// contracts/definitions/foomod/errors.go
+package foomod
 
 import "errors"
 
 var (
-    ErrNotFound   = errors.New("foosvc: foo not found")
-    ErrForbidden  = errors.New("foosvc: access denied")
-    ErrBadRequest = errors.New("foosvc: invalid request")
+    ErrNotFound   = errors.New("foomod: foo not found")
+    ErrForbidden  = errors.New("foomod: access denied")
+    ErrBadRequest = errors.New("foomod: invalid request")
 )
 ```
 
@@ -108,11 +108,11 @@ var (
 
 The `InprocClient` wraps any implementation of the `FooService` contract
 interface behind a type-safe wrapper. The composition root uses this to
-inject `foosvc` into modules that depend on it:
+inject `foomod` into modules that depend on it:
 
 ```go
-// contracts/definitions/foosvc/inproc_client.go
-package foosvc
+// contracts/definitions/foomod/inproc_client.go
+package foomod
 
 import "context"
 
@@ -122,7 +122,7 @@ type InprocClient struct {
 }
 
 // NewInprocClient wraps any FooService implementation.
-// The composition root calls: deffoosvc.NewInprocClient(fooModule)
+// The composition root calls: deffoomod.NewInprocClient(fooModule)
 // where *fooModule satisfies FooService.
 func NewInprocClient(impl FooService) *InprocClient {
     return &InprocClient{impl: impl}
@@ -149,7 +149,7 @@ func (c *InprocClient) ListFoos(ctx context.Context, req ListFoosRequest) ([]*Fo
 }
 ```
 
-The concrete `*foosvc.Module` satisfies `FooService` directly — it
+The concrete `*foomod.Module` satisfies `FooService` directly — it
 implements each method in its public surface. `NewInprocClient` accepts
 the `FooService` interface, so any implementation (including test
 doubles) can be injected.
@@ -157,17 +157,17 @@ doubles) can be injected.
 ## Dependency Graph
 
 ```
-contracts/definitions/foosvc/   ← zero deps
+contracts/definitions/foomod/   ← zero deps
         ↑
-modules/barsvc/                 ← imports deffoosvc, calls via InprocClient
+modules/barmod/                 ← imports deffoomod, calls via InprocClient
         ↑
 cmd/mmw/main.go                 ← creates fooModule, wraps in InprocClient,
                                    injects into barModule.Infrastructure
 ```
 
-`modules/barsvc` never imports `modules/foosvc` — only the contract.
-This is enforced by Go's module system: `barsvc/go.mod` lists
-`mmw-contracts/definitions/foosvc` as a dependency, not `mmw-foosvc`.
+`modules/barmod` never imports `modules/foomod` — only the contract.
+This is enforced by Go's module system: `barmod/go.mod` lists
+`mmw-contracts/definitions/foomod` as a dependency, not `mmw-foomod`.
 
 ## What Prevents Cycles
 
@@ -177,8 +177,8 @@ cycles structurally impossible.
 
 ```
 ❌ IMPOSSIBLE (compiler error):
-contracts/definitions/foosvc → modules/foosvc (would be circular)
+contracts/definitions/foomod → modules/foomod (would be circular)
 
 ✅ VALID:
-modules/barsvc → contracts/definitions/foosvc → (nothing)
+modules/barmod → contracts/definitions/foomod → (nothing)
 ```

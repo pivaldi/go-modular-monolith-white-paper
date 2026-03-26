@@ -9,7 +9,7 @@ The aggregate root enforces all business invariants. Fields are private;
 state changes happen only through methods that validate and emit events.
 
 ```go
-// modules/foosvc/internal/domain/foo.go
+// modules/foomod/internal/domain/foo.go
 package domain
 
 import (
@@ -82,7 +82,7 @@ Value objects are distinct named types. Validation lives in their
 constructors, not scattered across the application layer.
 
 ```go
-// modules/foosvc/internal/domain/value_objects.go
+// modules/foomod/internal/domain/value_objects.go
 package domain
 
 import "github.com/google/uuid"
@@ -142,7 +142,7 @@ Events are plain structs. They carry the minimum data needed for
 consumers. All events implement `DomainEvent`.
 
 ```go
-// modules/foosvc/internal/domain/events.go
+// modules/foomod/internal/domain/events.go
 package domain
 
 import (
@@ -191,7 +191,7 @@ exposes a `Snapshot` for persistence and a `FromSnapshot` constructor
 for reconstitution:
 
 ```go
-// modules/foosvc/internal/domain/snapshot.go
+// modules/foomod/internal/domain/snapshot.go
 package domain
 
 import "time"
@@ -249,7 +249,7 @@ func FromSnapshot(s FooSnapshot) (*Foo, error) {
 ## Domain Errors
 
 ```go
-// modules/foosvc/internal/domain/errors.go
+// modules/foomod/internal/domain/errors.go
 package domain
 
 import "errors"

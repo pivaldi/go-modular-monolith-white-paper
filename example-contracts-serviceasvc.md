@@ -1,11 +1,11 @@
-# Complete Contract Definition: foosvc
+# Complete Contract Definition: foomod
 
-A worked example of all four files in `contracts/definitions/foosvc/`.
+A worked example of all four files in `contracts/definitions/foomod/`.
 
 ## go.mod
 
 ```go
-module github.com/example/mmw-contracts/definitions/foosvc
+module github.com/example/mmw-contracts/definitions/foomod
 
 go 1.23
 // No require block — zero dependencies by design.
@@ -14,7 +14,7 @@ go 1.23
 ## api.go
 
 ```go
-package foosvc
+package foomod
 
 import "context"
 
@@ -30,7 +30,7 @@ type FooService interface {
 ## dto.go
 
 ```go
-package foosvc
+package foomod
 
 type CreateFooRequest   struct{ Title, Priority, OwnerID string }
 type GetFooRequest      struct{ ID, OwnerID string }
@@ -46,21 +46,21 @@ type FooResponse struct {
 ## errors.go
 
 ```go
-package foosvc
+package foomod
 
 import "errors"
 
 var (
-    ErrNotFound   = errors.New("foosvc: foo not found")
-    ErrForbidden  = errors.New("foosvc: access denied")
-    ErrBadRequest = errors.New("foosvc: invalid request")
+    ErrNotFound   = errors.New("foomod: foo not found")
+    ErrForbidden  = errors.New("foomod: access denied")
+    ErrBadRequest = errors.New("foomod: invalid request")
 )
 ```
 
 ## inproc_client.go
 
 ```go
-package foosvc
+package foomod
 
 import "context"
 
@@ -87,36 +87,36 @@ func (c *InprocClient) ListFoos(ctx context.Context, req ListFoosRequest) ([]*Fo
 }
 ```
 
-## How barsvc Uses This Contract
+## How barmod Uses This Contract
 
-In `modules/barsvc/go.mod`:
+In `modules/barmod/go.mod`:
 
 ```go
-module github.com/example/mmw-barsvc
+module github.com/example/mmw-barmod
 
 go 1.23
 
-require github.com/example/mmw-contracts/definitions/foosvc v0.0.0
+require github.com/example/mmw-contracts/definitions/foomod v0.0.0
 ```
 
-In `modules/barsvc/internal/application/ports/foo.go`:
+In `modules/barmod/internal/application/ports/foo.go`:
 
 ```go
 package ports
 
-import deffoosvc "github.com/example/mmw-contracts/definitions/foosvc"
+import deffoomod "github.com/example/mmw-contracts/definitions/foomod"
 
 // FooServicePort aliases the contract interface for use in the application layer.
-type FooServicePort = deffoosvc.FooService
+type FooServicePort = deffoomod.FooService
 ```
 
 In `cmd/mmw/main.go`:
 
 ```go
-fooModule, _ := foosvc.New(foosvc.Infrastructure{...})
+fooModule, _ := foomod.New(foomod.Infrastructure{...})
 
-barModule, _ := barsvc.New(barsvc.Infrastructure{
-    FooSvc: deffoosvc.NewInprocClient(fooModule),
+barModule, _ := barmod.New(barmod.Infrastructure{
+    FooSvc: deffoomod.NewInprocClient(fooModule),
     ...
 })
 ```

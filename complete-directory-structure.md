@@ -1,7 +1,7 @@
 # Complete Directory Structure
 
 Full annotated layout of an `mmw`-style monorepo with two feature
-modules (`foosvc`, `barsvc`), a shared library (`ogl`), and a contract
+modules (`foomod`, `barmod`), a shared library (`ogl`), and a contract
 module.
 
 ```
@@ -21,13 +21,13 @@ mmw/
 │   ├── buf.yaml                          ← buf lint + breaking change config
 │   ├── buf.gen.yaml                      ← connect-go + protobuf code gen config
 │   ├── definitions/
-│   │   ├── foosvc/                       ← go module: mmw-contracts/definitions/foosvc
+│   │   ├── foomod/                       ← go module: mmw-contracts/definitions/foomod
 │   │   │   ├── go.mod                    ← ZERO dependencies
 │   │   │   ├── api.go                    ← FooService interface
 │   │   │   ├── dto.go                    ← request/response types
 │   │   │   ├── errors.go                 ← public error sentinels
 │   │   │   └── inproc_client.go          ← wraps any FooService impl behind interface
-│   │   └── barsvc/                       ← go module: mmw-contracts/definitions/barsvc
+│   │   └── barmod/                       ← go module: mmw-contracts/definitions/barmod
 │   │       ├── go.mod
 │   │       ├── api.go
 │   │       ├── dto.go
@@ -46,10 +46,10 @@ mmw/
 │               └── barv1connect/bar.connect.go
 │
 ├── modules/
-│   ├── foosvc/                           ← go module: mmw-foosvc
+│   ├── foomod/                           ← go module: mmw-foomod
 │   │   ├── go.mod
-│   │   ├── foosvc.go                     ← Module{}, Infrastructure{}, New(), Start()
-│   │   ├── cmd/foosvc/main.go            ← optional standalone entry point
+│   │   ├── foomod.go                     ← Module{}, Infrastructure{}, New(), Start()
+│   │   ├── cmd/foomod/main.go            ← optional standalone entry point
 │   │   └── internal/
 │   │       ├── domain/
 │   │       │   ├── foo.go                ← Foo aggregate root
@@ -92,9 +92,9 @@ mmw/
 │   │                   ├── 001_create_foo_table.sql
 │   │                   └── 002_create_event_table.sql
 │   │
-│   └── barsvc/                           ← go module: mmw-barsvc (same layout)
+│   └── barmod/                           ← go module: mmw-barmod (same layout)
 │       ├── go.mod
-│       ├── barsvc.go
+│       ├── barmod.go
 │       └── internal/ ...
 │
 ├── libs/
@@ -139,8 +139,8 @@ mmw/
 
 | Layer | Location | What it tests |
 |---|---|---|
-| Domain unit | `modules/foosvc/internal/domain/*_test.go` | Business rules, value object validation, state transitions |
-| Application unit | `modules/foosvc/internal/application/**/*_test.go` | Command/query handlers with mock ports |
-| Adapter integration | `modules/foosvc/internal/adapters/**/*_test.go` | Repository + DB (testcontainers), Connect handler |
-| Contract | `contracts/definitions/foosvc/*_test.go` | InprocClient satisfies interface |
+| Domain unit | `modules/foomod/internal/domain/*_test.go` | Business rules, value object validation, state transitions |
+| Application unit | `modules/foomod/internal/application/**/*_test.go` | Command/query handlers with mock ports |
+| Adapter integration | `modules/foomod/internal/adapters/**/*_test.go` | Repository + DB (testcontainers), Connect handler |
+| Contract | `contracts/definitions/foomod/*_test.go` | InprocClient satisfies interface |
 | E2E | `test/e2e/` | Full HTTP request → DB → response |

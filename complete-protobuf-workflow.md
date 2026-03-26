@@ -99,7 +99,7 @@ This produces:
 ## Step 4: Implement the Handler
 
 ```go
-// modules/foosvc/internal/adapters/inbound/connect/foo_handler.go
+// modules/foomod/internal/adapters/inbound/connect/foo_handler.go
 package connectadapter
 
 import (
@@ -107,8 +107,8 @@ import (
     "connectrpc.com/connect"
     foov1 "github.com/example/mmw-contracts/gen/go/foo/v1"
     "github.com/example/mmw-contracts/gen/go/foo/v1/foov1connect"
-    "github.com/example/mmw-foosvc/internal/application"
-    "github.com/example/mmw-foosvc/internal/application/dto"
+    "github.com/example/mmw-foomod/internal/application"
+    "github.com/example/mmw-foomod/internal/application/dto"
 )
 
 type FooHandler struct{ svc *application.FooApplicationService }
@@ -147,7 +147,7 @@ func (h *FooHandler) CreateFoo(
 ## Step 5: Register in Module Factory
 
 ```go
-// modules/foosvc/foosvc.go — inside New()
+// modules/foomod/foomod.go — inside New()
 mux := http.NewServeMux()
 path, handler := foov1connect.NewFooServiceHandler(
     connectadapter.NewFooHandler(appSvc),
@@ -165,19 +165,19 @@ The same `FooHandler` is used for both. Only the composition root changes:
 **In-process (monolith):**
 ```go
 // cmd/mmw/main.go — no Connect client needed
-barModule, _ := barsvc.New(barsvc.Infrastructure{
-    FooSvc: deffoosvc.NewInprocClient(fooModule),
+barModule, _ := barmod.New(barmod.Infrastructure{
+    FooSvc: deffoomod.NewInprocClient(fooModule),
 })
 ```
 
 **Network (microservice split):**
 ```go
-// cmd/bar/main.go — after extracting foosvc to its own process
+// cmd/bar/main.go — after extracting foomod to its own process
 fooClient := foov1connect.NewFooServiceClient(
     http.DefaultClient,
-    "https://foosvc.internal",
+    "https://foomod.internal",
 )
-barModule, _ := barsvc.New(barsvc.Infrastructure{
-    FooSvc: fooClient, // satisfies deffoosvc.FooService if DTOs match
+barModule, _ := barmod.New(barmod.Infrastructure{
+    FooSvc: fooClient, // satisfies deffoomod.FooService if DTOs match
 })
 ```

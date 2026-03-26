@@ -25,20 +25,20 @@ the same inbound adapter serves both in-process and network callers.
 
 ```
 cmd/mmw/main.go
-  └── deffoosvc.NewInprocClient(fooModule)
+  └── deffoomod.NewInprocClient(fooModule)
         └── calls fooModule methods directly (no network, no serialisation)
 ```
 
 **Over-the-network (when splitting to microservices):**
 
 ```
-barsvc process                     foosvc process
+barmod process                     foomod process
   └── connect.NewFooServiceClient     └── Connect HTTP server
         └── HTTP/2 + protobuf               └── FooHandler (same code)
 ```
 
 The `FooHandler` Connect implementation changes nothing. Only the
-composition root swaps `deffoosvc.NewInprocClient(fooModule)` for a
+composition root swaps `deffoomod.NewInprocClient(fooModule)` for a
 `connect.NewFooServiceClient(httpClient, url)`.
 
 ## Hybrid Approach
@@ -48,7 +48,7 @@ Start with Go DTO contracts. Add protobuf when you need the network:
 **Phase 1 — Go DTOs only (contract definition)**
 
 ```go
-// contracts/definitions/foosvc/dto.go
+// contracts/definitions/foomod/dto.go
 type CreateFooRequest struct { Title, Priority, OwnerID string }
 type FooResponse      struct { ID, Title, Status, Priority, OwnerID string }
 ```
@@ -56,7 +56,7 @@ type FooResponse      struct { ID, Title, Status, Priority, OwnerID string }
 **Phase 2 — Protobuf DTOs (network-ready)**
 
 ```go
-// contracts/definitions/foosvc/dto.go
+// contracts/definitions/foomod/dto.go
 import foov1 "github.com/example/mmw-contracts/gen/go/foo/v1"
 
 // Use generated types as the contract DTOs directly

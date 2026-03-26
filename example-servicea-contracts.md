@@ -6,7 +6,7 @@ Minimal file content for a contract definition module. Copy and adjust
 ## File layout
 
 ```
-contracts/definitions/foosvc/
+contracts/definitions/foomod/
 ├── go.mod            (zero deps)
 ├── api.go            (interface)
 ├── dto.go            (request/response types)
@@ -17,7 +17,7 @@ contracts/definitions/foosvc/
 ## go.mod
 
 ```
-module github.com/example/mmw-contracts/definitions/foosvc
+module github.com/example/mmw-contracts/definitions/foomod
 
 go 1.23
 ```
@@ -25,7 +25,7 @@ go 1.23
 ## api.go skeleton
 
 ```go
-package foosvc
+package foomod
 
 import "context"
 
@@ -37,7 +37,7 @@ type FooService interface {
 ## inproc_client.go skeleton
 
 ```go
-package foosvc
+package foomod
 
 import "context"
 
@@ -56,10 +56,10 @@ func NewInprocClient(impl FooService) *InprocClient {
 
 ## Rule: The concrete *Module must satisfy FooService
 
-In `modules/foosvc/foosvc.go`, implement each interface method as a public
+In `modules/foomod/foomod.go`, implement each interface method as a public
 method on `*Module`. In `cmd/mmw/main.go`, add a compile-time check:
 
 ```go
-// This line will fail to compile if *foosvc.Module doesn't satisfy FooService.
-var _ deffoosvc.FooService = (*foosvc.Module)(nil)
+// This line will fail to compile if *foomod.Module doesn't satisfy FooService.
+var _ deffoomod.FooService = (*foomod.Module)(nil)
 ```

@@ -57,10 +57,10 @@ Go Workspaces Modular Monolith with Contract Definitions - Pure Technical Docume
 use (
     .
     ./contracts
-    ./contracts/definitions/foosvc
-    ./contracts/definitions/barsvc
-    ./modules/foosvc
-    ./modules/barsvc
+    ./contracts/definitions/foomod
+    ./contracts/definitions/barmod
+    ./modules/foomod
+    ./modules/barmod
     ./libs/ogl
     ./test/e2e
 )
@@ -87,22 +87,22 @@ mmw/
 │   ├── buf.yaml
 │   ├── buf.gen.yaml
 │   ├── definitions/
-│   │   ├── foosvc/                       # go module: ZERO dependencies
+│   │   ├── foomod/                       # go module: ZERO dependencies
 │   │   │   ├── go.mod
 │   │   │   ├── api.go                    # FooService interface
 │   │   │   ├── dto.go                    # Request/response types
 │   │   │   ├── errors.go                 # Public error sentinels
 │   │   │   └── inproc_client.go          # Wraps any FooService impl
-│   │   └── barsvc/
+│   │   └── barmod/
 │   ├── proto/
 │   │   └── foo/v1/foo.proto
 │   └── gen/go/foo/v1/
 ├── modules/
-│   ├── foosvc/                           # go module: mmw-foosvc
+│   ├── foomod/                           # go module: mmw-foomod
 │   │   ├── go.mod
-│   │   ├── foosvc.go                     # Module factory + Infrastructure struct
+│   │   ├── foomod.go                     # Module factory + Infrastructure struct
 │   │   └── internal/
-│   └── barsvc/
+│   └── barmod/
 ├── libs/
 │   └── ogl/                              # go module: ogl (mmw-platform)
 │       └── platform/
@@ -121,31 +121,31 @@ mmw/
 
 1. **Contract Definitions:** Zero dependencies
    ```go
-   // contracts/definitions/foosvc/go.mod
-   module github.com/example/mmw-contracts/definitions/foosvc
+   // contracts/definitions/foomod/go.mod
+   module github.com/example/mmw-contracts/definitions/foomod
    go 1.23
    // NO require statements
    ```
 
 2. **Modules:** Can import contract definitions only (not other modules' internals)
    ```go
-   // modules/barsvc/go.mod
-   module github.com/example/mmw-barsvc
+   // modules/barmod/go.mod
+   module github.com/example/mmw-barmod
    require (
-       github.com/example/mmw-contracts/definitions/foosvc v0.0.0
+       github.com/example/mmw-contracts/definitions/foomod v0.0.0
    )
-   // Cannot import github.com/example/mmw-foosvc/internal (compiler error)
+   // Cannot import github.com/example/mmw-foomod/internal (compiler error)
    ```
 
 3. **Internal Packages:** Cannot be imported across module boundaries
-   - `modules/foosvc/internal/` is inaccessible to `barsvc`
+   - `modules/foomod/internal/` is inaccessible to `barmod`
    - Enforced by Go's internal package rules + separate modules
 
 ## 2. Contract Definition Layer
 
 ### Contract Structure
 
-**Location:** `contracts/definitions/foosvc/`
+**Location:** `contracts/definitions/foomod/`
 
 **Purpose:** Public API contract that **defines** in-process communication with module independence.
 
@@ -154,11 +154,11 @@ mmw/
 **1. Interface Definition** (`api.go`)
 
 ```go
-package deffoosvc
+package deffoomod
 
 import "context"
 
-// FooService defines the public API contract for foosvc.
+// FooService defines the public API contract for foomod.
 type FooService interface {
     CreateFoo(ctx context.Context, req CreateFooRequest) (*FooDTO, error)
     GetFoo(ctx context.Context, id string) (*FooDTO, error)
@@ -169,7 +169,7 @@ type FooService interface {
 **2. Data Transfer Objects** (`dto.go`)
 
 ```go
-package deffoosvc
+package deffoomod
 
 type FooDTO struct {
     ID       string
@@ -189,7 +189,7 @@ type CreateFooRequest struct {
 **3. Error Types** (`errors.go`)
 
 ```go
-package deffoosvc
+package deffoomod
 
 import "errors"
 
@@ -202,12 +202,12 @@ var (
 **4. In-Process Client** (`inproc_client.go`)
 
 ```go
-package deffoosvc
+package deffoomod
 
 import "context"
 
 // InprocClient wraps any FooService implementation for in-process calls.
-// In the composition root this is the *foosvc.Module concrete type,
+// In the composition root this is the *foomod.Module concrete type,
 // but the client holds the interface — not the concrete type.
 type InprocClient struct {
     impl FooService
@@ -255,11 +255,11 @@ func (c *InprocClient) ListFoos(ctx context.Context, ownerID string) ([]*FooDTO,
 ### Directory Layout
 
 ```
-modules/foosvc/
-├── go.mod                            # Independent module: mmw-foosvc
-├── foosvc.go                         # Module factory + Infrastructure struct
+modules/foomod/
+├── go.mod                            # Independent module: mmw-foomod
+├── foomod.go                         # Module factory + Infrastructure struct
 ├── cmd/
-│   └── foosvc/
+│   └── foomod/
 │       └── main.go                   # Standalone entry (optional)
 └── internal/                         # Private implementation
     ├── domain/                       # Domain layer (aggregate, value objects, events)
@@ -282,13 +282,13 @@ modules/foosvc/
 ### go.mod Configuration
 
 ```go
-module github.com/example/mmw-foosvc
+module github.com/example/mmw-foomod
 
 go 1.23
 
 require (
     // Contract this module implements
-    github.com/example/mmw-contracts/definitions/foosvc v0.0.0
+    github.com/example/mmw-contracts/definitions/foomod v0.0.0
 
     // Platform library
     github.com/ovya/ogl v0.0.0
@@ -339,7 +339,7 @@ Application (use cases, ports)
     ↑
 Adapters (implementations)
     ↑
-foosvc.go (Infrastructure struct + Module factory)
+foomod.go (Infrastructure struct + Module factory)
     ↑
 cmd/mmw/main.go (composition root)
 ```
@@ -348,11 +348,11 @@ cmd/mmw/main.go (composition root)
 
 ### Domain Layer
 
-**Location:** `modules/foosvc/internal/domain/`
+**Location:** `modules/foomod/internal/domain/`
 
 **Aggregate Root** — enforces all business invariants:
 ```go
-// modules/foosvc/internal/domain/foo.go
+// modules/foomod/internal/domain/foo.go
 type Foo struct {
     id        FooID
     title     FooTitle
@@ -411,11 +411,11 @@ func NewFooTitle(s string) (FooTitle, error) {
 
 ### Application Layer
 
-**Location:** `modules/foosvc/internal/application/`
+**Location:** `modules/foomod/internal/application/`
 
 **Secondary Ports** (`ports/`):
 ```go
-// modules/foosvc/internal/application/ports/ports.go
+// modules/foomod/internal/application/ports/ports.go
 type FooRepository interface {
     Save(ctx context.Context, foo *domain.Foo) error
     FindByID(ctx context.Context, id domain.FooID) (*domain.Foo, error)
@@ -434,7 +434,7 @@ type UnitOfWork interface {
 
 **Application Service** (thin facade):
 ```go
-// modules/foosvc/internal/application/foo_service.go
+// modules/foomod/internal/application/foo_service.go
 type FooApplicationService struct {
     repo       ports.FooRepository
     uow        ports.UnitOfWork
@@ -452,7 +452,7 @@ func NewFooApplicationService(
 
 **Command Handler** (write operation with UoW):
 ```go
-// modules/foosvc/internal/application/command/create_foo.go
+// modules/foomod/internal/application/command/create_foo.go
 func (h *CreateFooHandler) Handle(ctx context.Context, cmd CreateFooCommand) (*FooDTO, error) {
     var result *FooDTO
     err := h.uow.Do(ctx, func(ctx context.Context) error {
@@ -482,7 +482,7 @@ func (h *CreateFooHandler) Handle(ctx context.Context, cmd CreateFooCommand) (*F
 
 ### Adapters Layer
 
-**Location:** `modules/foosvc/internal/adapters/`
+**Location:** `modules/foomod/internal/adapters/`
 
 #### Inbound Adapters
 
@@ -584,7 +584,7 @@ Events are written **in the same transaction** as the business data. A backgroun
 
 ### Infrastructure Layer
 
-**Location:** `modules/foosvc/internal/infra/`
+**Location:** `modules/foomod/internal/infra/`
 
 **Configuration:** `infra/config/config.go`
 
@@ -648,21 +648,21 @@ func main() {
     eventBus := oglevents.NewWatermillBus(rawBus)
 
     // 2. Module factories (dependency order matters)
-    fooModule, _ := foosvc.New(foosvc.Infrastructure{
+    fooModule, _ := foomod.New(foomod.Infrastructure{
         DBPool:   pool,
         EventBus: eventBus,
         Logger:   logger,
     })
 
-    barModule, _ := barsvc.New(barsvc.Infrastructure{
+    barModule, _ := barmod.New(barmod.Infrastructure{
         DBPool:   pool,
         EventBus: eventBus,
-        FooSvc:   deffoosvc.NewInprocClient(fooModule),
+        FooSvc:   deffoomod.NewInprocClient(fooModule),
         Logger:   logger,
     })
 
     // 3. Register event topics each module publishes
-    for _, topic := range foosvc.NotifyEvents {
+    for _, topic := range foomod.NotifyEvents {
         eventBus.RegisterTopic(topic)
     }
 
@@ -685,17 +685,17 @@ func main() {
 
 **Pattern:** Shared fate architecture — if one module fails, all shut down together.
 
-Concrete example when foosvc fails:
+Concrete example when foomod fails:
 
 - **WITHOUT shared fate**
-  - foosvc: Crashed (database connection fails)
-  - barsvc: Running (but calls to foosvc fail silently)
+  - foomod: Crashed (database connection fails)
+  - barmod: Running (but calls to foomod fail silently)
   - Result: Zombie monolith in undefined state
 
 - **WITH shared fate (platform.App)**
-  - foosvc `Start()` returns error
+  - foomod `Start()` returns error
   - platform errgroup cancels context for all modules
-  - barsvc `Start()` detects `ctx.Done()` → graceful shutdown
+  - barmod `Start()` detects `ctx.Done()` → graceful shutdown
   - Process exits
   - Kubernetes restarts entire pod with clean state
 
@@ -780,7 +780,7 @@ buf breaking --against '.git#branch=main'
 The generated `foov1connect` package provides the `FooServiceHandler` interface that the Connect inbound adapter must implement:
 
 ```go
-// modules/foosvc/internal/adapters/inbound/connect/foo_handler.go
+// modules/foomod/internal/adapters/inbound/connect/foo_handler.go
 
 // Compile-time assertion — fails build if FooHandler is missing any method
 var _ foov1connect.FooServiceHandler = (*FooHandler)(nil)
@@ -793,17 +793,17 @@ var _ foov1connect.FooServiceHandler = (*FooHandler)(nil)
 ### Test Organization
 
 **Domain unit tests:** Co-located with domain code
-- Location: `modules/foosvc/internal/domain/*_test.go`
+- Location: `modules/foomod/internal/domain/*_test.go`
 - Purpose: Business rules, value object validation, state transitions
 - Dependencies: None (pure functions, no mocks needed)
 
 **Application unit tests:** Co-located with handlers
-- Location: `modules/foosvc/internal/application/**/*_test.go`
+- Location: `modules/foomod/internal/application/**/*_test.go`
 - Purpose: Command/query handlers with mock ports
 - Dependencies: Mock implementations of `FooRepository`, `EventDispatcher`, `UnitOfWork`
 
 **Adapter integration tests:** Co-located with adapters
-- Location: `modules/foosvc/internal/adapters/**/*_test.go`
+- Location: `modules/foomod/internal/adapters/**/*_test.go`
 - Purpose: Repository + real DB (testcontainers), Connect handler
 - Dependencies: Real database via testcontainers
 
@@ -822,7 +822,7 @@ go test ./...
 go build -o bin/mmw ./cmd/mmw
 
 # Run standalone module
-go run ./modules/foosvc/cmd/foosvc
+go run ./modules/foomod/cmd/foomod
 
 # Verify module dependencies
 go mod verify
@@ -872,18 +872,18 @@ To distribute modules, swap the `InprocClient` for a network Connect client in `
 **Before (In-Process):**
 ```go
 // cmd/mmw/main.go
-fooModule, _ := foosvc.New(foosvc.Infrastructure{...})
-barModule, _ := barsvc.New(barsvc.Infrastructure{
-    FooSvc: deffoosvc.NewInprocClient(fooModule), // in-process
+fooModule, _ := foomod.New(foomod.Infrastructure{...})
+barModule, _ := barmod.New(barmod.Infrastructure{
+    FooSvc: deffoomod.NewInprocClient(fooModule), // in-process
 })
 ```
 
 **After (Network/Connect):**
 ```go
-// barsvc deployed separately; foosvc exposed over HTTP
-barModule, _ := barsvc.New(barsvc.Infrastructure{
-    FooSvc: deffoosvc.NewConnectClient("https://foosvc.internal"), // network
+// barmod deployed separately; foomod exposed over HTTP
+barModule, _ := barmod.New(barmod.Infrastructure{
+    FooSvc: deffoomod.NewConnectClient("https://foomod.internal"), // network
 })
 ```
 
-The `FooApplicationService` inside barsvc calls the same `FooService` interface — it never knows whether the transport is in-process or network.
+The `FooApplicationService` inside barmod calls the same `FooService` interface — it never knows whether the transport is in-process or network.

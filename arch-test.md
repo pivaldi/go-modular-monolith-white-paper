@@ -285,7 +285,7 @@ func checkGoModPurity(contractDefPath, contractDefName string) error {
                         "Contract definitions must have ZERO dependencies (no require statements).\n"+
                         "\n"+
                         "If you see module internals here, the module itself (not the contract) should satisfy the interface.\n"+
-                        "The *Module type lives in: modules/%s/ (the module root file, e.g. foosvc.go)\n"+
+                        "The *Module type lives in: modules/%s/ (the module root file, e.g. foomod.go)\n"+
                         "\n"+
                         "Contract definition modules should contain ONLY:\n"+
                         "  - Interfaces (api.go)\n"+
@@ -419,8 +419,8 @@ func checkModuleDependencies() error {
     // - Circular module deps prevent independent evolution
     //
     // Example violation:
-    //   modules/barsvc/go.mod: require contracts/definitions/foosvc ✓ OK
-    //   contracts/definitions/foosvc/go.mod: require modules/barsvc ✗ CYCLE!
+    //   modules/barmod/go.mod: require contracts/definitions/foomod ✓ OK
+    //   contracts/definitions/foomod/go.mod: require modules/barmod ✗ CYCLE!
     for module := range graph {
         visited := make(map[string]bool)
         if hasCycle(module, graph, visited, make(map[string]bool)) {
@@ -533,7 +533,7 @@ func checkLayerDependencies() error {
 The first-line architecture test is a compile-time assertion in every module:
 
 ```go
-// modules/foosvc/foosvc.go
+// modules/foomod/foomod.go
 var _ oglcore.Module = (*Module)(nil)
 ```
 
@@ -568,12 +568,12 @@ Example CI failure message:
 ✗ Architecture validation failed
 
 Checking: module-isolation
-  ✗ FAILED: modules/barsvc/internal/adapters/outbound/helper.go
-    imports modules/foosvc/internal/domain/entitya
+  ✗ FAILED: modules/barmod/internal/adapters/outbound/helper.go
+    imports modules/foomod/internal/domain/entitya
     (cross-module internal import)
 
-Fix: Remove direct import of foosvc internals.
-      Use contracts/definitions/foosvc instead.
+Fix: Remove direct import of foomod internals.
+      Use contracts/definitions/foomod instead.
 ```
 
 ## Additional Validation Rules

@@ -9,10 +9,10 @@ See [mmw-platform.md](mmw-platform.md) for the full platform runner reference.
 
 ## The Module Struct
 
-Each module in `modules/foosvc/foosvc.go` follows this structure:
+Each module in `modules/foomod/foomod.go` follows this structure:
 
 ```go
-package foosvc
+package foomod
 
 import (
     "context"
@@ -24,11 +24,11 @@ import (
     oglevents "github.com/ovya/ogl/platform/events"
     oglserver "github.com/ovya/ogl/platform/server"
     "github.com/jackc/pgx/v5/pgxpool"
-    defbar "github.com/example/mmw-contracts/definitions/barsvc"
-    "github.com/example/mmw-foosvc/internal/domain"
+    defbar "github.com/example/mmw-contracts/definitions/barmod"
+    "github.com/example/mmw-foomod/internal/domain"
 )
 
-const ModuleName = "foosvc"
+const ModuleName = "foomod"
 
 var NotifyEvents = domain.AllEvents
 
@@ -53,14 +53,14 @@ var _ oglcore.Module = (*Module)(nil)
 
 ## The Factory Function
 
-`New` wires all internal components. Nothing from inside `modules/foosvc/internal/`
+`New` wires all internal components. Nothing from inside `modules/foomod/internal/`
 is accessible outside the module — the `internal/` package rule enforces this.
 
 ```go
 func New(infra Infrastructure) (*Module, error) {
     cfg, err := config.Load(context.Background(), "")
     if err != nil {
-        return nil, fmt.Errorf("foosvc: load config: %w", err)
+        return nil, fmt.Errorf("foomod: load config: %w", err)
     }
 
     // 1. Outbound adapters
@@ -109,7 +109,7 @@ relay concurrently:
 
 ```go
 func (m *Module) Start(ctx context.Context) error {
-    m.logger.Info("starting foosvc")
+    m.logger.Info("starting foomod")
     g, gCtx := errgroup.WithContext(ctx)
 
     g.Go(func() error {
@@ -150,9 +150,9 @@ import (
     oglevents "github.com/ovya/ogl/platform/events"
     oglslog "github.com/ovya/ogl/slog"
 
-    barsvc "github.com/example/mmw-barsvc"
-    defbar "github.com/example/mmw-contracts/definitions/barsvc"
-    foosvc "github.com/example/mmw-foosvc"
+    barmod "github.com/example/mmw-barmod"
+    defbar "github.com/example/mmw-contracts/definitions/barmod"
+    foomod "github.com/example/mmw-foomod"
     notifications "github.com/example/mmw-notifications"
     mmwconfig "github.com/example/mmw/config"
 )
@@ -176,20 +176,20 @@ func main() {
     systemBus := oglevents.NewWatermillBus(rawBus)
 
     // 2. Instantiate modules in dependency order (depended-on first)
-    barModule, _ := barsvc.New(barsvc.Infrastructure{
+    barModule, _ := barmod.New(barmod.Infrastructure{
         DBPool:   dbPool,
         EventBus: systemBus,
-        Logger:   logger.With("module", barsvc.ModuleName),
+        Logger:   logger.With("module", barmod.ModuleName),
     })
 
-    fooModule, _ := foosvc.New(foosvc.Infrastructure{
+    fooModule, _ := foomod.New(foomod.Infrastructure{
         DBPool:   dbPool,
         EventBus: systemBus,
-        Logger:   logger.With("module", foosvc.ModuleName),
+        Logger:   logger.With("module", foomod.ModuleName),
         BarSvc:   defbar.NewInprocClient(barModule), // in-process wiring
     })
 
-    notifEvents := append(foosvc.NotifyEvents, barsvc.NotifyEvents...)
+    notifEvents := append(foomod.NotifyEvents, barmod.NotifyEvents...)
     notifModule, _ := notifications.New(notifications.Infrastructure{
         Subscriber: rawBus,
         Logger:     logger.With("module", notifications.ModuleName),
@@ -213,7 +213,7 @@ other module receives this cancellation and exits cleanly via its own
 context-aware server and relay.
 
 This means:
-- A database crash in `foosvc` stops the entire process — not just `foosvc`
+- A database crash in `foomod` stops the entire process — not just `foomod`
 - A clean `SIGTERM` reaches all modules simultaneously
 - No module can silently fail and keep others running in a degraded state
 
@@ -222,9 +222,9 @@ This means:
 Production composition roots wrap every `New` call:
 
 ```go
-barModule, err := barsvc.New(barsvc.Infrastructure{ ... })
+barModule, err := barmod.New(barmod.Infrastructure{ ... })
 if err != nil {
-    logger.Error("failed to initialize barsvc", "err", err)
+    logger.Error("failed to initialize barmod", "err", err)
     os.Exit(1)
 }
 ```

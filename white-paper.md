@@ -268,8 +268,8 @@ Each service uses clean architecture internally:
 graph TB
     subgraph monorepo["mmw (Monorepo)"]
         contracts["contracts/<br/>(proto)<br/><br/>foo.proto"]
-        contract_def["contracts/definitions/<br/>(public)<br/><br/>foosvc/<br/>api.go<br/>dto.go<br/>inproc_client.go"]
-        services["modules/<br/>(private)<br/><br/>barsvc/<br/>internal/<br/><br/>foosvc/<br/>internal/"]
+        contract_def["contracts/definitions/<br/>(public)<br/><br/>foomod/<br/>api.go<br/>dto.go<br/>inproc_client.go"]
+        services["modules/<br/>(private)<br/><br/>barmod/<br/>internal/<br/><br/>foomod/<br/>internal/"]
 
         services -->|uses| contract_def
         contract_def -->|generates from| contracts
@@ -285,33 +285,33 @@ graph TB
 **In-Process:**
 ```mermaid
 graph LR
-    barsvc["barsvc"] -->|calls| inproc_client["deffoosvc.InprocClient"]
-    inproc_client -->|calls| foosvc_module["*foosvc.Module"]
-    foosvc_module -->|calls| foosvc_internal["foosvc/internal"]
+    barmod["barmod"] -->|calls| inproc_client["deffoomod.InprocClient"]
+    inproc_client -->|calls| foomod_module["*foomod.Module"]
+    foomod_module -->|calls| foomod_internal["foomod/internal"]
 
     note["Performance: &lt;1μs latency, zero serialization"]
 
-    style barsvc fill:#e1f5ff
+    style barmod fill:#e1f5ff
     style inproc_client fill:#fff4e1
-    style foosvc_module fill:#fff4e1
-    style foosvc_internal fill:#ffe1e1
+    style foomod_module fill:#fff4e1
+    style foomod_internal fill:#ffe1e1
 ```
 
 **Distributed:**
 ```mermaid
 graph LR
-    barsvc["barsvc"] -->|HTTP request| connect_client["Connect Client"]
+    barmod["barmod"] -->|HTTP request| connect_client["Connect Client"]
     connect_client -->|network| http["HTTP"]
     http -->|network| connect_server["Connect Server"]
-    connect_server -->|calls| foosvc_internal["foosvc/internal"]
+    connect_server -->|calls| foomod_internal["foomod/internal"]
 
     note["Performance: 1-5ms latency, protobuf serialization"]
 
-    style barsvc fill:#e1f5ff
+    style barmod fill:#e1f5ff
     style connect_client fill:#fff4e1
     style http fill:#f0f0f0
     style connect_server fill:#fff4e1
-    style foosvc_internal fill:#ffe1e1
+    style foomod_internal fill:#ffe1e1
 ```
 
 ## Architecture Deep Dive
@@ -326,7 +326,7 @@ See the file [complete-directory-structure.md](complete-directory-structure.md).
 
 Each service is an independent Go module because:
 - **Compiler enforces boundaries** - Service A physically cannot import Service B's `internal/` package
-- **Independent dependency graphs** - `barsvc` doesn't inherit `foosvc`'s PostgreSQL driver
+- **Independent dependency graphs** - `barmod` doesn't inherit `foomod`'s PostgreSQL driver
 - **Independent versioning** - Services can evolve at different rates
 - **Clear ownership** - Each module has its own `go.mod` showing dependencies
 - **Future extraction** - Already a separate module, easy to move to separate repo
@@ -497,7 +497,7 @@ See the file: [example-composition-root-managed-by-errgroup.md](example-composit
 See the file [cross-service-events.md](cross-service-events.md).
 
 ### Lifecycle Visualization
-The following diagram illustrates how the errgroup acts as a safety net. Note how an error in foosvc propagates to stop barsvc immediately.
+The following diagram illustrates how the errgroup acts as a safety net. Note how an error in foomod propagates to stop barmod immediately.
 
 ```mermaid
 sequenceDiagram

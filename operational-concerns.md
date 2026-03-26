@@ -121,7 +121,7 @@ Use these companion tools to visualize and analyze your dependency graph:
   godepgraph -s github.com/yourorg/yourproject | dot -Tpng -o deps.png
 
   # Focus on specific package
-  godepgraph -s -o github.com/yourorg/yourproject/modules/barsvc | dot -Tpng -o barsvc-deps.png
+  godepgraph -s -o github.com/yourorg/yourproject/modules/barmod | dot -Tpng -o barmod-deps.png
   ```
 
 - **[goda](https://github.com/loov/goda)** (Advanced)
@@ -141,7 +141,7 @@ Use these companion tools to visualize and analyze your dependency graph:
   goda tree "./..."
 
   # Analyze specific service dependencies
-  goda graph "reach(./modules/barsvc/...)" | dot -Tpng -o barsvc-reach.png
+  goda graph "reach(./modules/barmod/...)" | dot -Tpng -o barmod-reach.png
   ```
 
 - **[graphdot](https://github.com/ewohltman/graphdot)** (Module-level)
@@ -177,12 +177,12 @@ Example CI failure message:
 ✗ Architecture validation failed
 
 Checking: module-isolation
-  ✗ FAILED: modules/barsvc/internal/adapters/outbound/helper.go
-    imports modules/foosvc/internal/domain/entity
+  ✗ FAILED: modules/barmod/internal/adapters/outbound/helper.go
+    imports modules/foomod/internal/domain/entity
     (cross-module internal import)
 
-Fix: Remove direct import of foosvc internals.
-      Use contracts/definitions/foosvc instead.
+Fix: Remove direct import of foomod internals.
+      Use contracts/definitions/foomod instead.
 ```
 
 ### Additional Validation Rules
@@ -230,7 +230,7 @@ func checkDomainCoverage() error {
 **Logging (Structured):**
 
 ```go
-// modules/foosvc/internal/adapters/inbound/connect/foo_handler.go
+// modules/foomod/internal/adapters/inbound/connect/foo_handler.go
 slog.InfoContext(ctx, "foo created",
     slog.String("foo_id", foo.ID().String()),
     slog.String("owner_id", req.Msg.OwnerId),
@@ -255,8 +255,8 @@ go build -o bin/mmw ./cmd/mmw
 **Option 2: Separate deployments (distributed)**
 ```bash
 # Build separate module binaries
-go build -o bin/foosvc ./modules/foosvc/cmd/foosvc
-go build -o bin/barsvc ./modules/barsvc/cmd/barsvc
+go build -o bin/foomod ./modules/foomod/cmd/foomod
+go build -o bin/barmod ./modules/barmod/cmd/barmod
 
 # Deploy to separate pods/hosts
 # Services use Connect/HTTP to communicate

@@ -74,9 +74,9 @@ platform.New(logger, modules).Run(ctx)
 first. Inject cross-module dependencies via `NewInprocClient`:
 
 ```go
-barModule, _ := barsvc.New(...)                          // no cross-module deps
-fooModule, _ := foosvc.New(foosvc.Infrastructure{        // depends on barsvc
-    BarSvc: defbarsvc.NewInprocClient(barModule),
+barModule, _ := barmod.New(...)                          // no cross-module deps
+fooModule, _ := foomod.New(foomod.Infrastructure{        // depends on barmod
+    BarSvc: defbarmod.NewInprocClient(barModule),
     ...
 })
 ```
@@ -92,11 +92,11 @@ fooModule, _ := foosvc.New(foosvc.Infrastructure{        // depends on barsvc
 
 | Thing | Convention |
 |---|---|
-| Module package | `foosvc` (lowercase, no separator) |
-| Module constant | `const ModuleName = "foosvc"` |
+| Module package | `foomod` (lowercase, no separator) |
+| Module constant | `const ModuleName = "foomod"` |
 | Outbox table | `<schema>.event` (e.g. `foo.event`) |
-| Contract package | `deffoosvc` (import alias) |
-| InprocClient call | `deffoosvc.NewInprocClient(fooModule)` |
+| Contract package | `deffoomod` (import alias) |
+| InprocClient call | `deffoomod.NewInprocClient(fooModule)` |
 
 ## Forbidden Patterns
 

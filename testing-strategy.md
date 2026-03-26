@@ -19,7 +19,7 @@ Test at multiple levels to ensure correctness and maintainability.
 **Focus:** Business logic in isolation
 
 ```go
-// modules/barsvc/internal/domain/foo/foo_test.go
+// modules/barmod/internal/domain/foo/foo_test.go
 func TestFoo_UpdateName(t *testing.T) {
     f := foo.NewFoo("foo-123",
         foo.MustNewName("initial-name"),
@@ -44,22 +44,22 @@ func TestFoo_UpdateName(t *testing.T) {
 **Focus:** Orchestration logic with mocked ports
 
 ```go
-// modules/barsvc/internal/application/command/create_foo_test.go
+// modules/barmod/internal/application/command/create_foo_test.go
 func TestCreateFooCommand_Execute(t *testing.T) {
     // Setup mocks
     fooRepo := mocks.NewFooRepository(t)
     eventDispatcher := mocks.NewEventDispatcher(t)
-    foosvcClient := mocks.NewFooServiceClient(t)
+    foomodClient := mocks.NewFooServiceClient(t)
 
     // Mock expectations
     fooRepo.On("Save", ctx, mock.Anything).Return(nil)
     eventDispatcher.On("Dispatch", ctx, mock.Anything).Return(nil)
-    foosvcClient.On("GetFoo", ctx, "foo-123").Return(&ports.FooInfo{
+    foomodClient.On("GetFoo", ctx, "foo-123").Return(&ports.FooInfo{
         Name: "my-foo",
     }, nil)
 
     // Execute
-    cmd := command.NewCreateFooCommand(fooRepo, eventDispatcher, foosvcClient, logger)
+    cmd := command.NewCreateFooCommand(fooRepo, eventDispatcher, foomodClient, logger)
     result, err := cmd.Execute(ctx, command.CreateFooInput{
         Name: "my-foo",
     })
@@ -189,7 +189,7 @@ packages:
 **Focus:** Adapters with real external systems
 
 ```go
-// modules/barsvc/internal/adapters/outbound/persistence/postgres/foo_repository_test.go
+// modules/barmod/internal/adapters/outbound/persistence/postgres/foo_repository_test.go
 func TestFooRepository_Save(t *testing.T) {
     if testing.Short() {
         t.Skip("Skipping integration test")
@@ -225,28 +225,28 @@ func TestFooRepository_Save(t *testing.T) {
 **Important:** Contract tests live in the **PROVIDER** service, not the consumer. Each service tests its own implementation of its contract interface.
 
 ```go
-// modules/foosvc/test/contract/contracts_test.go
+// modules/foomod/test/contract/contracts_test.go
 func TestFooService_ContractImplementation(t *testing.T) {
-    // Setup: Initialize foosvc with test data
-    // This is foosvc testing its OWN implementation
+    // Setup: Initialize foomod with test data
+    // This is foomod testing its OWN implementation
     app := setupTestFooService(t)
     defer app.Cleanup()
 
-    // Create InprocClient (the contract implementation foosvc provides)
+    // Create InprocClient (the contract implementation foomod provides)
     client := inbound_contracts.NewInprocClient(
         app.GetFooQuery,
         app.CreateFooCommand,
         // ... other dependencies
     )
 
-    // Test that it correctly implements foosvc.FooService interface
+    // Test that it correctly implements foomod.FooService interface
     foo, err := client.GetFoo(context.Background(), "test-foo-123")
     require.NoError(t, err)
     assert.Equal(t, "Test Foo", foo.Name)
 
     // Test error contract
     _, err = client.GetFoo(context.Background(), "nonexistent")
-    assert.ErrorIs(t, err, foosvc.ErrFooNotFound)
+    assert.ErrorIs(t, err, foomod.ErrFooNotFound)
 
     // Test DTO mapping (domain entity → contract DTO)
     assert.NotEmpty(t, foo.ID)
@@ -275,7 +275,7 @@ func TestFooCreationFlow(t *testing.T) {
     createResp, err := env.FooClient.CreateFoo(ctx, "my-foo")
     require.NoError(t, err)
 
-    // Retrieve the Foo via barsvc
+    // Retrieve the Foo via barmod
     getResp, err := env.BarClient.GetFoo(ctx, createResp.ID)
     require.NoError(t, err)
     assert.Equal(t, "my-foo", getResp.Name)
@@ -301,7 +301,7 @@ go test ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 
 # Specific service
-cd modules/foosvc
+cd modules/foomod
 go test ./...
 
 # Integration tests only

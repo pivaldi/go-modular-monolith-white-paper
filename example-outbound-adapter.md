@@ -10,7 +10,7 @@ The repository receives a `*pgxpool.Pool` directly — no ORM. It uses
 the domain's `ToSnapshot()` / `FromSnapshot()` for persistence.
 
 ```go
-// modules/foosvc/internal/adapters/outbound/persistence/postgres/foo_repository.go
+// modules/foomod/internal/adapters/outbound/persistence/postgres/foo_repository.go
 package postgres
 
 import (
@@ -20,8 +20,8 @@ import (
     "github.com/jackc/pgx/v5"
     "github.com/jackc/pgx/v5/pgxpool"
     ogluow "github.com/ovya/ogl/pg/uow"
-    "github.com/example/mmw-foosvc/internal/application/ports"
-    "github.com/example/mmw-foosvc/internal/domain"
+    "github.com/example/mmw-foomod/internal/application/ports"
+    "github.com/example/mmw-foomod/internal/domain"
 )
 
 // PostgresFooRepository implements ports.FooRepository.
@@ -92,7 +92,7 @@ to a `foo.event` outbox table **in the same transaction** as the
 business operation. A background relay then publishes them to Watermill.
 
 ```go
-// modules/foosvc/internal/adapters/outbound/events/outbox_dispatcher.go
+// modules/foomod/internal/adapters/outbound/events/outbox_dispatcher.go
 package events
 
 import (
@@ -101,8 +101,8 @@ import (
 
     "github.com/jackc/pgx/v5/pgxpool"
     ogluow "github.com/ovya/ogl/pg/uow"
-    "github.com/example/mmw-foosvc/internal/application/ports"
-    "github.com/example/mmw-foosvc/internal/domain"
+    "github.com/example/mmw-foomod/internal/application/ports"
+    "github.com/example/mmw-foomod/internal/domain"
 )
 
 // PostgresOutboxDispatcher implements ports.EventDispatcher.

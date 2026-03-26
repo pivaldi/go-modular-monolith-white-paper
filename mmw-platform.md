@@ -18,8 +18,8 @@ Signal (SIGTERM/SIGINT)
        ▼
   context.Cancel()
        │
-       ├── Module: foosvc.Start(ctx) ──► HTTP server + outbox relay
-       ├── Module: barsvc.Start(ctx) ──► HTTP server + outbox relay
+       ├── Module: foomod.Start(ctx) ──► HTTP server + outbox relay
+       ├── Module: barmod.Start(ctx) ──► HTTP server + outbox relay
        └── Module: baznotif.Start(ctx) ──► event subscriber
 ```
 
@@ -103,7 +103,7 @@ resources it needs. This is the only public API surface of the module
 besides `New` and `Start`.
 
 ```go
-// modules/foosvc/foosvc.go
+// modules/foomod/foomod.go
 type Infrastructure struct {
     DBPool   *pgxpool.Pool          // shared DB pool (read/write)
     EventBus oglevents.SystemEventBus // Watermill bus wrapper
@@ -123,11 +123,11 @@ type Infrastructure struct {
 components and returns a ready-to-run `*Module`.
 
 ```go
-// modules/foosvc/foosvc.go
+// modules/foomod/foomod.go
 func New(infra Infrastructure) (*Module, error) {
     cfg, err := config.Load(context.Background(), "")
     if err != nil {
-        return nil, fmt.Errorf("foosvc: load config: %w", err)
+        return nil, fmt.Errorf("foomod: load config: %w", err)
     }
 
     // 1. Outbound adapters
@@ -177,7 +177,7 @@ Each module runs its own internal `errgroup` to manage its server and
 background workers:
 
 ```go
-// modules/foosvc/foosvc.go
+// modules/foomod/foomod.go
 type Module struct {
     relay  *ogloutbox.EventsRelay
     server *oglserver.HTTPServer
@@ -236,23 +236,23 @@ func main() {
     defer rawBus.Close()
     systemBus := oglevents.NewWatermillBus(rawBus)
 
-    // barsvc has no cross-module dependency — instantiate first
-    barModule, _ := barsvc.New(barsvc.Infrastructure{
+    // barmod has no cross-module dependency — instantiate first
+    barModule, _ := barmod.New(barmod.Infrastructure{
         DBPool:   dbPool,
         EventBus: systemBus,
-        Logger:   logger.With("module", barsvc.ModuleName),
+        Logger:   logger.With("module", barmod.ModuleName),
     })
 
-    // foosvc depends on barsvc — wire via InprocClient
-    fooModule, _ := foosvc.New(foosvc.Infrastructure{
+    // foomod depends on barmod — wire via InprocClient
+    fooModule, _ := foomod.New(foomod.Infrastructure{
         DBPool:   dbPool,
         EventBus: systemBus,
-        Logger:   logger.With("module", foosvc.ModuleName),
+        Logger:   logger.With("module", foomod.ModuleName),
         BarSvc:   defbar.NewInprocClient(barModule), // ← in-process contract
     })
 
     // notifier subscribes to events from both modules
-    notifEvents := append(foosvc.NotifyEvents, barsvc.NotifyEvents...)
+    notifEvents := append(foomod.NotifyEvents, barmod.NotifyEvents...)
     notifModule, _ := notifications.New(notifications.Infrastructure{
         Subscriber: rawBus,
         Logger:     logger.With("module", notifications.ModuleName),
@@ -270,7 +270,7 @@ func main() {
 **`InprocClient`** wraps any implementation of the contract interface —
 in the composition root that happens to be the `*Module` concrete type — so the
 consumer sees only the `BarService` interface, never the concrete module.
-This is defined in `contracts/definitions/barsvc/inproc_client.go`.
+This is defined in `contracts/definitions/barmod/inproc_client.go`.
 
 ## 8. Compile-Time Safety
 

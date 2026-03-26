@@ -7,12 +7,12 @@ between a DB commit and a publish.
 ## Architecture Overview
 
 ```
-foosvc (producer)                   barsvc / notifier (consumers)
+foomod (producer)                   barmod / notifier (consumers)
 ─────────────────                   ────────────────────────────
 Command handler                     EventsRelay (background)
   └── uow.Do(ctx, fn)                 └── poll foo.event table
       ├── repo.Save()                 └── publish to Watermill bus
-      └── dispatcher.Dispatch()           └── barsvc subscriber
+      └── dispatcher.Dispatch()           └── barmod subscriber
           └── INSERT foo.event                 └── handle event
           (same transaction)
 ```
@@ -24,7 +24,7 @@ published on the next restart.
 ## Step 1: Declare Events in the Domain
 
 ```go
-// modules/foosvc/internal/domain/events.go
+// modules/foomod/internal/domain/events.go
 package domain
 
 var AllEvents = []string{
@@ -43,7 +43,7 @@ func (e FooCreated) EventType() string { return "foo.created" }
 Export `AllEvents` from the module root for the composition root to use:
 
 ```go
-// modules/foosvc/foosvc.go
+// modules/foomod/foomod.go
 var NotifyEvents = domain.AllEvents
 ```
 
@@ -94,7 +94,7 @@ and subscribe to topics matching the producer's `AllEvents`:
 type Infrastructure struct {
     Subscriber  *gochannel.GoChannel   // raw Watermill bus
     Logger      *slog.Logger
-    Topics      []string               // from foosvc.NotifyEvents + barsvc.NotifyEvents
+    Topics      []string               // from foomod.NotifyEvents + barmod.NotifyEvents
     WithNotifier bool
 }
 ```
@@ -102,7 +102,7 @@ type Infrastructure struct {
 In `cmd/mmw/main.go`, the topics are assembled from all producers:
 
 ```go
-notifEvents := append(foosvc.NotifyEvents, barsvc.NotifyEvents...)
+notifEvents := append(foomod.NotifyEvents, barmod.NotifyEvents...)
 notifModule, _ := notifications.New(notifications.Infrastructure{
     Subscriber: rawBus,
     Logger:     logger.With("module", notifications.ModuleName),
@@ -115,7 +115,7 @@ notifModule, _ := notifications.New(notifications.Infrastructure{
 Each module manages its own outbox table, scoped to its schema:
 
 ```sql
--- modules/foosvc/internal/infra/persistence/migrations/002_create_event_table.sql
+-- modules/foomod/internal/infra/persistence/migrations/002_create_event_table.sql
 CREATE TABLE foo.event (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     aggregate_id UUID NOT NULL,
@@ -141,8 +141,8 @@ rawBus := gochannel.NewGoChannel(
 )
 systemBus := oglevents.NewWatermillBus(rawBus)
 
-// foosvc gets the wrapped bus (for the relay)
-foosvc.New(foosvc.Infrastructure{EventBus: systemBus, ...})
+// foomod gets the wrapped bus (for the relay)
+foomod.New(foomod.Infrastructure{EventBus: systemBus, ...})
 
 // notifications gets the raw bus (for subscriptions)
 notifications.New(notifications.Infrastructure{Subscriber: rawBus, ...})

@@ -15,7 +15,7 @@ Even with a well-designed architecture, common anti-patterns can undermine its b
 **Example:**
 ```go
 // ✗ BAD: Business logic in contract definition
-package foosvc
+package foomod
 
 func (dto *ServiceADTO) IsPopular() bool {
     return dto.FollowerCount > 10000  // Business rule in contract definition!
@@ -132,11 +132,11 @@ func CreateArticle(ctx context.Context, req CreateArticleRequest) error {
 package command
 
 import (
-    "github.com/.../contracts/definitions/foosvc"  // Wrong layer!
+    "github.com/.../contracts/definitions/foomod"  // Wrong layer!
 )
 
 type CreateArticleCommand struct {
-    authorService foosvc.AuthorService  // Directly coupled to contract definition
+    authorService foomod.AuthorService  // Directly coupled to contract definition
 }
 ```
 

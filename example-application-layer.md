@@ -9,12 +9,12 @@ in adapters). It depends only on domain types and port interfaces.
 Ports are interfaces the application layer defines. Adapters implement them.
 
 ```go
-// modules/foosvc/internal/application/ports/repository.go
+// modules/foomod/internal/application/ports/repository.go
 package ports
 
 import (
     "context"
-    "github.com/example/mmw-foosvc/internal/domain"
+    "github.com/example/mmw-foomod/internal/domain"
 )
 
 type FooRepository interface {
@@ -25,12 +25,12 @@ type FooRepository interface {
     Health(ctx context.Context) error
 }
 
-// modules/foosvc/internal/application/ports/events.go
+// modules/foomod/internal/application/ports/events.go
 type EventDispatcher interface {
     Dispatch(ctx context.Context, events []domain.DomainEvent) error
 }
 
-// modules/foosvc/internal/application/ports/uow.go
+// modules/foomod/internal/application/ports/uow.go
 // UnitOfWork wraps a command in a database transaction.
 type UnitOfWork interface {
     Do(ctx context.Context, fn func(ctx context.Context) error) error
@@ -44,15 +44,15 @@ command and query handlers. It is the only type the inbound adapter
 (Connect handler) depends on.
 
 ```go
-// modules/foosvc/internal/application/service.go
+// modules/foomod/internal/application/service.go
 package application
 
 import (
     "context"
-    "github.com/example/mmw-foosvc/internal/application/command"
-    "github.com/example/mmw-foosvc/internal/application/dto"
-    "github.com/example/mmw-foosvc/internal/application/ports"
-    "github.com/example/mmw-foosvc/internal/application/query"
+    "github.com/example/mmw-foomod/internal/application/command"
+    "github.com/example/mmw-foomod/internal/application/dto"
+    "github.com/example/mmw-foomod/internal/application/ports"
+    "github.com/example/mmw-foomod/internal/application/query"
 )
 
 type FooApplicationService struct {
@@ -106,16 +106,16 @@ Command handlers perform writes. They use the Unit of Work to wrap the
 operation in a transaction, then dispatch domain events.
 
 ```go
-// modules/foosvc/internal/application/command/create_foo.go
+// modules/foomod/internal/application/command/create_foo.go
 package command
 
 import (
     "context"
     "fmt"
 
-    "github.com/example/mmw-foosvc/internal/application/dto"
-    "github.com/example/mmw-foosvc/internal/application/ports"
-    "github.com/example/mmw-foosvc/internal/domain"
+    "github.com/example/mmw-foomod/internal/application/dto"
+    "github.com/example/mmw-foomod/internal/application/ports"
+    "github.com/example/mmw-foomod/internal/domain"
 )
 
 type CreateFooHandler struct {
@@ -157,16 +157,16 @@ func (h *CreateFooHandler) Handle(ctx context.Context, cmd dto.CreateFooCommand)
 Query handlers perform reads only — no writes, no events, no Unit of Work.
 
 ```go
-// modules/foosvc/internal/application/query/get_foo.go
+// modules/foomod/internal/application/query/get_foo.go
 package query
 
 import (
     "context"
     "fmt"
 
-    "github.com/example/mmw-foosvc/internal/application/dto"
-    "github.com/example/mmw-foosvc/internal/application/ports"
-    "github.com/example/mmw-foosvc/internal/domain"
+    "github.com/example/mmw-foomod/internal/application/dto"
+    "github.com/example/mmw-foomod/internal/application/ports"
+    "github.com/example/mmw-foomod/internal/domain"
 )
 
 type GetFooHandler struct {
@@ -198,12 +198,12 @@ DTOs are plain structs with no domain logic. They cross the boundary
 between the inbound adapter and the application layer.
 
 ```go
-// modules/foosvc/internal/application/dto/foo_dto.go
+// modules/foomod/internal/application/dto/foo_dto.go
 package dto
 
 import (
     "github.com/google/uuid"
-    "github.com/example/mmw-foosvc/internal/domain"
+    "github.com/example/mmw-foomod/internal/domain"
 )
 
 type CreateFooCommand struct {

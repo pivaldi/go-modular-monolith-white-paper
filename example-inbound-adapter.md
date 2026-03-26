@@ -11,16 +11,16 @@ the `.proto` definition. It translates between Connect request/response
 types and application DTOs.
 
 ```go
-// modules/foosvc/internal/adapters/inbound/connect/foo_handler.go
+// modules/foomod/internal/adapters/inbound/connect/foo_handler.go
 package connectadapter
 
 import (
     "context"
 
     "connectrpc.com/connect"
-    "github.com/example/mmw-foosvc/internal/application"
-    "github.com/example/mmw-foosvc/internal/application/dto"
-    "github.com/example/mmw-foosvc/internal/domain"
+    "github.com/example/mmw-foomod/internal/application"
+    "github.com/example/mmw-foomod/internal/application/dto"
+    "github.com/example/mmw-foomod/internal/domain"
     foov1 "github.com/example/mmw-contracts/gen/go/foo/v1"
     "github.com/example/mmw-contracts/gen/go/foo/v1/foov1connect"
 )
@@ -86,13 +86,13 @@ func (h *FooHandler) GetFoo(
 ## Domain Error → Connect Status Code Mapping
 
 ```go
-// modules/foosvc/internal/adapters/inbound/connect/errors.go
+// modules/foomod/internal/adapters/inbound/connect/errors.go
 package connectadapter
 
 import (
     "errors"
     "connectrpc.com/connect"
-    "github.com/example/mmw-foosvc/internal/domain"
+    "github.com/example/mmw-foomod/internal/domain"
 )
 
 func domainErrToConnect(err error) error {
@@ -117,7 +117,7 @@ and injects the authenticated owner ID into the context. It wraps the
 entire Connect mux, so every RPC requires authentication.
 
 ```go
-// modules/foosvc/internal/adapters/inbound/connect/auth_middleware.go
+// modules/foomod/internal/adapters/inbound/connect/auth_middleware.go
 package connectadapter
 
 import (
@@ -125,7 +125,7 @@ import (
     "net/http"
     "log/slog"
 
-    defbar "github.com/example/mmw-contracts/definitions/barsvc"
+    defbar "github.com/example/mmw-contracts/definitions/barmod"
 )
 
 type contextKey string
@@ -168,7 +168,7 @@ func NewAuthMiddleware(
 
 ## Registration in the Module Factory
 
-The mux, handler, and middleware are assembled in `modules/foosvc/foosvc.go`:
+The mux, handler, and middleware are assembled in `modules/foomod/foomod.go`:
 
 ```go
 mux := http.NewServeMux()
