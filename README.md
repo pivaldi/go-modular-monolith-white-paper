@@ -16,7 +16,7 @@ Go Workspaces Modular Monolith with Contract Definitions - Pure Technical Docume
     - [Contract Structure](#contract-structure)
     - [Contract Components](#contract-components)
     - [Contract Dependency Rules](#contract-dependency-rules)
-  - [3. Service Module Structure](#3-service-module-structure)
+  - [3. Module Structure](#3-module-structure)
     - [Directory Layout](#directory-layout)
     - [go.mod Configuration](#gomod-configuration)
     - [Internal Package Organization](#internal-package-organization)
@@ -29,9 +29,9 @@ Go Workspaces Modular Monolith with Contract Definitions - Pure Technical Docume
       - [Outbound Adapters](#outbound-adapters)
     - [Infrastructure Layer](#infrastructure-layer)
   - [5. Runtime Orchestration](#5-runtime-orchestration)
+    - [mmw-platform: Module Lifecycle](#mmw-platform-module-lifecycle)
     - [Composition Root (main.go)](#composition-root-maingo)
     - [Supervision with errgroup](#supervision-with-errgroup)
-    - [Worker Service Pattern (Non-Blocking Services)](#worker-service-pattern-non-blocking-services)
   - [6. Protobuf Integration](#6-protobuf-integration)
     - [When to Use Protobuf](#when-to-use-protobuf)
     - [Directory Structure](#directory-structure)
@@ -55,11 +55,13 @@ Go Workspaces Modular Monolith with Contract Definitions - Pure Technical Docume
 
 ```
 use (
+    .
     ./contracts
-    ./contracts/definitions/serviceasvc
-    ./contracts/definitions/servicebsvc
-    ./services/serviceasvc
-    ./services/servicebsvc
+    ./contracts/definitions/foosvc
+    ./contracts/definitions/barsvc
+    ./modules/foosvc
+    ./modules/barsvc
+    ./libs/ogl
     ./test/e2e
 )
 ```
@@ -75,37 +77,42 @@ use (
 ### Module Organization
 
 ```
-service-manager/
-├── go.work                           # Workspace coordinator
-├── contracts/                        # Unified contracts module
-│   ├── go.mod                        # Module: contracts
-│   ├── definitions/                  # Contract definitions (pure interfaces)
-│   │   ├── serviceasvc/              # Service A public contract
-│   │   │   ├── go.mod                # ZERO dependencies
-│   │   │   ├── api.go                # Interface definition
-│   │   │   ├── dto.go                # Data transfer objects
-│   │   │   ├── errors.go             # Public error types
-│   │   │   └── inproc_client.go      # In-process client wrapper
-│   │   └── servicebsvc/              # Service B public contract
-│   ├── proto/                        # Protobuf schemas (optional)
-│   │   ├── buf.yaml
-│   │   ├── servicea/v1/servicea.proto
-│   │   └── serviceb/v1/serviceb.proto
-│   └── gen/                          # Generated code from protobuf
-│       ├── go/servicea/v1/
-│       └── ts/servicea/v1/
-├── services/
-│   ├── serviceasvc/                  # Service A
-│   │   ├── go.mod                    # Module: services/serviceasvc
-│   │   │                             # Dependencies: contracts/definitions/serviceasvc
-│   │   ├── cmd/serviceasvc/main.go   # Service entry point
-│   │   └── internal/                 # Private implementation
-│   └── servicebsvc/                  # Service B
-│       ├── go.mod                    # Module: services/servicebsvc
-│       │                             # Dependencies: contracts/definitions/serviceasvc
-│       └── internal/
-└── test/e2e/                         # End-to-end tests
-    └── go.mod                        # Module: test/e2e
+mmw/
+├── go.work                               # Workspace coordinator
+├── cmd/
+│   └── mmw/
+│       └── main.go                       # Composition root: wires all modules
+├── contracts/                            # go module: mmw-contracts
+│   ├── go.mod
+│   ├── buf.yaml
+│   ├── buf.gen.yaml
+│   ├── definitions/
+│   │   ├── foosvc/                       # go module: ZERO dependencies
+│   │   │   ├── go.mod
+│   │   │   ├── api.go                    # FooService interface
+│   │   │   ├── dto.go                    # Request/response types
+│   │   │   ├── errors.go                 # Public error sentinels
+│   │   │   └── inproc_client.go          # Wraps any FooService impl
+│   │   └── barsvc/
+│   ├── proto/
+│   │   └── foo/v1/foo.proto
+│   └── gen/go/foo/v1/
+├── modules/
+│   ├── foosvc/                           # go module: mmw-foosvc
+│   │   ├── go.mod
+│   │   ├── foosvc.go                     # Module factory + Infrastructure struct
+│   │   └── internal/
+│   └── barsvc/
+├── libs/
+│   └── ogl/                              # go module: ogl (mmw-platform)
+│       └── platform/
+│           ├── core/app.go               # Module interface
+│           ├── runner.go                 # platform.App + Run()
+│           ├── server/
+│           ├── events/
+│           └── connect/
+└── test/e2e/
+    └── go.mod
 ```
 
 ### Module Dependency Rules
@@ -114,31 +121,31 @@ service-manager/
 
 1. **Contract Definitions:** Zero dependencies
    ```go
-   // contracts/definitions/serviceasvc/go.mod
-   module github.com/example/service-manager/contracts/definitions/serviceasvc
-   go 1.21
+   // contracts/definitions/foosvc/go.mod
+   module github.com/example/mmw-contracts/definitions/foosvc
+   go 1.23
    // NO require statements
    ```
 
-2. **Services:** Can import contract definitions only
+2. **Modules:** Can import contract definitions only (not other modules' internals)
    ```go
-   // services/servicebsvc/go.mod
-   module github.com/example/service-manager/services/servicebsvc
+   // modules/barsvc/go.mod
+   module github.com/example/mmw-barsvc
    require (
-       github.com/.../contracts/definitions/serviceasvc v1.0.0
+       github.com/example/mmw-contracts/definitions/foosvc v0.0.0
    )
-   // Cannot import services/serviceasvc/internal (compiler error)
+   // Cannot import github.com/example/mmw-foosvc/internal (compiler error)
    ```
 
 3. **Internal Packages:** Cannot be imported across module boundaries
-   - `services/serviceasvc/internal/` is inaccessible to `servicebsvc`
+   - `modules/foosvc/internal/` is inaccessible to `barsvc`
    - Enforced by Go's internal package rules + separate modules
 
 ## 2. Contract Definition Layer
 
 ### Contract Structure
 
-**Location:** `contracts/definitions/serviceasvc/`
+**Location:** `contracts/definitions/foosvc/`
 
 **Purpose:** Public API contract that **defines** in-process communication with module independence.
 
@@ -147,95 +154,89 @@ service-manager/
 **1. Interface Definition** (`api.go`)
 
 ```go
-package serviceasvc
+package deffoosvc
 
 import "context"
 
-// ServiceA defines the public API contract
-type ServiceA interface {
-    GetEntityA(ctx context.Context, id string) (*ServiceADTO, error)
-    CreateEntityA(ctx context.Context, req *CreateEntityARequest) (*ServiceADTO, error)
-    UpdateEntityA(ctx context.Context, id string, req *UpdateEntityARequest) (*ServiceADTO, error)
-    ListEntityA(ctx context.Context, filter *ListEntityAFilter) ([]*ServiceADTO, error)
+// FooService defines the public API contract for foosvc.
+type FooService interface {
+    CreateFoo(ctx context.Context, req CreateFooRequest) (*FooDTO, error)
+    GetFoo(ctx context.Context, id string) (*FooDTO, error)
+    ListFoos(ctx context.Context, ownerID string) ([]*FooDTO, error)
 }
 ```
 
 **2. Data Transfer Objects** (`dto.go`)
 
 ```go
-package serviceasvc
+package deffoosvc
 
-type ServiceADTO struct {
-    ID        string
-    Name      string
-    Bio       string
-    AvatarURL string
+type FooDTO struct {
+    ID       string
+    Title    string
+    Status   string
+    Priority string
+    OwnerID  string
 }
 
-type CreateEntityARequest struct {
-    Name string
-    Bio  string
-}
-
-type UpdateEntityARequest struct {
-    Name *string  // Optional fields use pointers
-    Bio  *string
-}
-
-type ListEntityAFilter struct {
-    Limit  int
-    Offset int
+type CreateFooRequest struct {
+    Title    string
+    Priority string
+    OwnerID  string
 }
 ```
 
 **3. Error Types** (`errors.go`)
 
 ```go
-package serviceasvc
+package deffoosvc
 
 import "errors"
 
 var (
-    ErrEntityANotFound     = errors.New("entity not found")
-    ErrInvalidEntityAData  = errors.New("invalid entity data")
-    ErrServiceAUnavailable = errors.New("service unavailable")
+    ErrFooNotFound    = errors.New("foo not found")
+    ErrFooUnavailable = errors.New("foo service unavailable")
 )
 ```
 
 **4. In-Process Client** (`inproc_client.go`)
 
 ```go
-package serviceasvc
+package deffoosvc
 
 import "context"
 
-// InprocClient wraps any ServiceA implementation for in-process calls
+// InprocClient wraps any FooService implementation for in-process calls.
+// In the composition root this is the *foosvc.Module concrete type,
+// but the client holds the interface — not the concrete type.
 type InprocClient struct {
-    server ServiceA  // Interface, not concrete type
+    impl FooService
 }
 
-func NewInprocClient(server ServiceA) *InprocClient {
-    return &InprocClient{server: server}
+func NewInprocClient(impl FooService) *InprocClient {
+    return &InprocClient{impl: impl}
 }
 
-func (c *InprocClient) GetEntityA(ctx context.Context, id string) (*ServiceADTO, error) {
-    return c.server.GetEntityA(ctx, id)
+func (c *InprocClient) CreateFoo(ctx context.Context, req CreateFooRequest) (*FooDTO, error) {
+    return c.impl.CreateFoo(ctx, req)
 }
 
-func (c *InprocClient) CreateEntityA(ctx context.Context, req *CreateEntityARequest) (*ServiceADTO, error) {
-    return c.server.CreateEntityA(ctx, req)
+func (c *InprocClient) GetFoo(ctx context.Context, id string) (*FooDTO, error) {
+    return c.impl.GetFoo(ctx, id)
 }
 
-// ... other methods delegate to server interface
+func (c *InprocClient) ListFoos(ctx context.Context, ownerID string) ([]*FooDTO, error) {
+    return c.impl.ListFoos(ctx, ownerID)
+}
 ```
 
 ### Contract Dependency Rules
 
 **What contracts contain:**
 - Interface definitions
-- DTOs (pure data structures, no methods with business logic)
+- DTOs (pure data structures, no business logic)
 - Error constants
-- InprocClient (thin wrapper)
+- InprocClient (thin wrapper that delegates to the interface)
 
 **What contracts NEVER contain:**
 - Business logic or validation
@@ -249,68 +250,83 @@ func (c *InprocClient) CreateEntityA(ctx context.Context, req *CreateEntityARequ
 - `arch-test` validates no `internal/` imports
 - Code review catches logical coupling
 
-## 3. Service Module Structure
+## 3. Module Structure
 
 ### Directory Layout
 
 ```
-services/serviceasvc/
-├── go.mod                            # Independent module
+modules/foosvc/
+├── go.mod                            # Independent module: mmw-foosvc
+├── foosvc.go                         # Module factory + Infrastructure struct
 ├── cmd/
-│   └── serviceasvc/
-│       └── main.go                   # Service entry point
-├── internal/                         # Private implementation
-│   ├── domain/                       # Domain layer (entities, value objects)
-│   ├── application/                  # Application layer (use cases, ports)
-│   ├── adapters/                     # Adapters layer (I/O boundaries)
-│   │   ├── inbound/                  # Inbound adapters
-│   │   │   ├── contracts/            # Contract adapter (InprocServer)
-│   │   │   │   └── inproc_server.go
-│   │   │   ├── http/                 # HTTP REST adapter
-│   │   │   └── connect/              # gRPC/Connect adapter
-│   │   └── outbound/                 # Outbound adapters
-│   │       ├── persistence/postgres/ # Database adapter
-│   │       └── serviceaclient/       # Client adapters
-│   └── infra/                        # Infrastructure (config, DB, etc.)
-├── test/
-│   └── contract/                     # Contract tests (provider side)
-└── README.md
+│   └── foosvc/
+│       └── main.go                   # Standalone entry (optional)
+└── internal/                         # Private implementation
+    ├── domain/                       # Domain layer (aggregate, value objects, events)
+    ├── application/                  # Application layer (commands, queries, ports)
+    │   ├── command/
+    │   ├── query/
+    │   ├── ports/
+    │   └── dto/
+    ├── adapters/                     # Adapters layer (I/O boundaries)
+    │   ├── inbound/
+    │   │   └── connect/              # Connect RPC handler
+    │   └── outbound/
+    │       ├── persistence/postgres/ # Database adapter (pgxpool, no ORM)
+    │       └── events/               # Outbox event dispatcher
+    └── infra/
+        ├── config/
+        └── persistence/migrations/
 ```
 
 ### go.mod Configuration
 
 ```go
-module github.com/example/service-manager/services/serviceasvc
+module github.com/example/mmw-foosvc
 
-go 1.21
+go 1.23
 
 require (
-    // Contract definition this service implements
-    github.com/.../contracts/definitions/serviceasvc v1.0.0
+    // Contract this module implements
+    github.com/example/mmw-contracts/definitions/foosvc v0.0.0
 
-    // Standard dependencies
-    github.com/lib/pq v1.10.9
-    golang.org/x/sync v0.3.0
+    // Platform library
+    github.com/ovya/ogl v0.0.0
+
+    // DB driver
+    github.com/jackc/pgx/v5 v5.7.0
+
+    // Connect RPC
+    connectrpc.com/connect v1.18.1
+
+    // Generated proto types
+    github.com/example/mmw-contracts v0.0.0
 )
 ```
 
 ### Internal Package Organization
 
 **Domain Layer:** `internal/domain/`
-- Pure business logic
-- No external dependencies
-- Aggregate structure: `domain/{aggregate}/`
+- Pure business logic, zero external dependencies
+- Aggregate root with private fields, public methods, domain event emission
+- Value objects with validation in constructors
+- `ToSnapshot()` / `FromSnapshot()` for persistence without exposing private state
+- `AllEvents` slice for event type registration
 
 **Application Layer:** `internal/application/`
-- Use cases and orchestration
-- Structure: `application/{command,query,ports}/`
+- `command/` — write operations (use UoW + repo + dispatcher)
+- `query/` — read operations (no UoW needed)
+- `ports/` — secondary port interfaces (`FooRepository`, `EventDispatcher`, `UnitOfWork`)
+- `dto/` — application-level data transfer objects
 
 **Adapters Layer:** `internal/adapters/`
-- I/O boundaries
-- Structure: `adapters/{inbound,outbound}/`
+- `inbound/connect/` — Connect RPC handler implementing generated interface
+- `outbound/persistence/postgres/` — repository using `*pgxpool.Pool` + `ogluow.GetExecutor`
+- `outbound/events/` — outbox dispatcher writing to `foo.event` table
 
 **Infrastructure Layer:** `internal/infra/`
-- Technical concerns (config, database, observability)
+- `config/` — module-specific config loading
+- `persistence/migrations/` — SQL migration files
 
 ## 4. Hexagonal Architecture Layers
 
@@ -323,470 +339,260 @@ Application (use cases, ports)
     ↑
 Adapters (implementations)
     ↑
-Infrastructure (wiring)
+foosvc.go (Infrastructure struct + Module factory)
     ↑
-main.go (composition root)
+cmd/mmw/main.go (composition root)
 ```
 
 **Rule:** Dependencies point inward. Inner layers never depend on outer layers.
 
 ### Domain Layer
 
-**Location:** `services/*/internal/domain/`
+**Location:** `modules/foosvc/internal/domain/`
 
-**Components:**
-
-**Entities** (aggregate roots)
+**Aggregate Root** — enforces all business invariants:
 ```go
-// domain/user/user.go
-type User struct {
-    id             string
-    email          Email
-    hashedPassword HashedPassword
-    createdAt      time.Time
-    updatedAt      time.Time
+// modules/foosvc/internal/domain/foo.go
+type Foo struct {
+    id        FooID
+    title     FooTitle
+    status    FooStatus
+    priority  Priority
+    ownerID   uuid.UUID
+    createdAt time.Time
+    updatedAt time.Time
+    events    []DomainEvent
 }
 
-func NewUser(id string, email Email, hashedPassword HashedPassword) *User {
-    return &User{
-        id:             id,
-        email:          email,
-        hashedPassword: hashedPassword,
-        createdAt:      time.Now(),
-        updatedAt:      time.Now(),
+func NewFoo(title FooTitle, priority Priority, ownerID uuid.UUID) (*Foo, error) {
+    if ownerID == uuid.Nil {
+        return nil, ErrOwnerRequired
     }
+    now := time.Now().UTC()
+    f := &Foo{
+        id: NewFooID(), title: title,
+        status: StatusPending, priority: priority,
+        ownerID: ownerID, createdAt: now, updatedAt: now,
+    }
+    f.events = append(f.events, FooCreated{FooID: f.id, OwnerID: ownerID, At: now})
+    return f, nil
 }
 
-func (u *User) ChangePassword(oldPassword string, newPassword string) error {
-    // Verify old password
-    if !u.hashedPassword.Verify(oldPassword) {
-        return ErrInvalidPassword
-    }
-
-    // Business rule: Validate new password strength
-    if err := ValidatePasswordStrength(newPassword); err != nil {
-        return err
-    }
-
-    // Business rule: New password cannot be same as old
-    if u.hashedPassword.Verify(newPassword) {
-        return ErrPasswordMustBeDifferent
-    }
-
-    // Hash new password
-    newHash, err := HashPassword(newPassword)
-    if err != nil {
-        return err
-    }
-
-    // Update entity state (persistence happens via repository.Save() in application layer)
-    u.hashedPassword = newHash
-    u.updatedAt = time.Now()
-
+func (f *Foo) Complete() error {
+    if f.status == StatusCompleted { return ErrAlreadyCompleted }
+    if f.status == StatusCancelled { return ErrCancelledCannotComplete }
+    f.status = StatusCompleted
+    f.updatedAt = time.Now().UTC()
+    f.events = append(f.events, FooCompleted{FooID: f.id, At: f.updatedAt})
     return nil
 }
 
-// VerifyPassword checks if the given password matches
-func (u *User) VerifyPassword(password string) bool {
-    return u.hashedPassword.Verify(password)
-}
-
-// Getters
-func (u *User) ID() string { return u.id }
-func (u *User) Email() Email { return u.email }
-func (u *User) CreatedAt() time.Time { return u.createdAt }
-func (u *User) UpdatedAt() time.Time { return u.updatedAt }
+func (f *Foo) PopEvents() []DomainEvent { evts := f.events; f.events = nil; return evts }
 ```
 
-**Value Objects**
+**Value Objects** — validated named types:
 ```go
-// domain/user/email.go
-type Email struct {
-    value string
-}
+type FooID struct{ v uuid.UUID }
+func NewFooID() FooID              { return FooID{v: uuid.New()} }
+func (id FooID) String() string    { return id.v.String() }
 
-func NewEmail(email string) (Email, error) {
-    email = strings.TrimSpace(strings.ToLower(email))
-    if !emailRegex.MatchString(email) {
-        return Email{}, errors.New("invalid email format")
-    }
-    return Email{value: email}, nil
-}
-
-func (e Email) String() string { return e.value }
-```
-
-**Repository Interfaces** (ports owned by domain)
-```go
-// domain/user/repository.go
-type Repository interface {
-    Save(ctx context.Context, user *User) error
-    FindByID(ctx context.Context, id string) (*User, error)
-    FindByEmail(ctx context.Context, email Email) (*User, error)
+type FooTitle struct{ v string }
+func NewFooTitle(s string) (FooTitle, error) {
+    if len(s) == 0   { return FooTitle{}, ErrTitleEmpty }
+    if len(s) > 200  { return FooTitle{}, ErrTitleTooLong }
+    return FooTitle{v: s}, nil
 }
 ```
 
 **Properties:**
 - No external dependencies (standard library only)
 - Fully testable without infrastructure
-- Encapsulates business rules
+- State changes only through methods that validate and emit events
 
 ### Application Layer
 
-**Location:** `services/*/internal/application/`
+**Location:** `modules/foosvc/internal/application/`
 
-**Structure:**
-- `command/` - Write operations
-- `query/` - Read operations
-- `ports/` - Interface definitions for adapters
-- `dto/` - Application data transfer objects
-
-**Command Example**
+**Secondary Ports** (`ports/`):
 ```go
-// application/command/login.go
-package command
-
-import (
-    "context"
-    "errors"
-    "time"
-
-    "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
-    "github.com/example/service-manager/services/servicebsvc/internal/domain/session"
-    "github.com/example/service-manager/services/servicebsvc/internal/domain/user"
-)
-
-type LoginCommand struct {
-    userRepo       user.Repository      // Domain interface
-    sessionRepo    session.Repository   // Domain interface
-    authorClient   ports.AuthorClient   // Application port
-    logger         ports.Logger         // Application port
+// modules/foosvc/internal/application/ports/ports.go
+type FooRepository interface {
+    Save(ctx context.Context, foo *domain.Foo) error
+    FindByID(ctx context.Context, id domain.FooID) (*domain.Foo, error)
+    Delete(ctx context.Context, id domain.FooID) error
+    Health(ctx context.Context) error
 }
 
-func NewLoginCommand(
-    userRepo user.Repository,
-    sessionRepo session.Repository,
-    authorClient ports.AuthorClient,
-    logger ports.Logger,
-) *LoginCommand {
-    return &LoginCommand{
-        userRepo:     userRepo,
-        sessionRepo:  sessionRepo,
-        authorClient: authorClient,
-        logger:       logger,
-    }
+type EventDispatcher interface {
+    Dispatch(ctx context.Context, events []domain.DomainEvent) error
 }
 
-type LoginInput struct {
-    Email    string
-    Password string
-}
-
-type LoginOutput struct {
-    Token      string
-    UserID     string
-    AuthorName string
-    ExpiresAt  time.Time
-}
-
-func (c *LoginCommand) Execute(ctx context.Context, input LoginInput) (*LoginOutput, error) {
-    // 1. Validate with domain
-    email, err := user.NewEmail(input.Email)
-    if err != nil {
-        return nil, ErrInvalidCredentials
-    }
-
-    // 2. Fetch entity
-    u, err := c.userRepo.FindByEmail(ctx, email)
-    if err != nil {
-        return nil, err
-    }
-
-    // 3. Domain logic
-    if !u.VerifyPassword(input.Password) {
-        return nil, ErrInvalidCredentials
-    }
-
-    // 4. Create session
-    sess := session.New(u.ID(), 24*time.Hour)
-
-    // 5. Call external service (via port)
-    authorInfo, err := c.authorClient.GetAuthor(ctx, u.ID())
-    // Handle error with graceful degradation
-
-    // 6. Persist
-    if err := c.sessionRepo.Save(ctx, sess); err != nil {
-        return nil, err
-    }
-
-    // 7. Return output
-    return &LoginOutput{
-        Token:      sess.Token().String(),
-        UserID:     u.ID(),
-        AuthorName: authorInfo.Name,
-        ExpiresAt:  sess.ExpiresAt(),
-    }, nil
+type UnitOfWork interface {
+    Do(ctx context.Context, fn func(ctx context.Context) error) error
 }
 ```
 
-**Port Definition**
+**Application Service** (thin facade):
 ```go
-// application/ports/author_client.go
-type AuthorClient interface {
-    GetAuthor(ctx context.Context, authorID string) (*AuthorInfo, error)
+// modules/foosvc/internal/application/foo_service.go
+type FooApplicationService struct {
+    repo       ports.FooRepository
+    uow        ports.UnitOfWork
+    dispatcher ports.EventDispatcher
 }
 
-type AuthorInfo struct {
-    ID        string
-    Name      string
-    Bio       string
-    AvatarURL string
+func NewFooApplicationService(
+    repo ports.FooRepository,
+    uow ports.UnitOfWork,
+    dispatcher ports.EventDispatcher,
+) *FooApplicationService {
+    return &FooApplicationService{repo: repo, uow: uow, dispatcher: dispatcher}
+}
+```
+
+**Command Handler** (write operation with UoW):
+```go
+// modules/foosvc/internal/application/command/create_foo.go
+func (h *CreateFooHandler) Handle(ctx context.Context, cmd CreateFooCommand) (*FooDTO, error) {
+    var result *FooDTO
+    err := h.uow.Do(ctx, func(ctx context.Context) error {
+        title, err := domain.NewFooTitle(cmd.Title)
+        if err != nil { return err }
+        priority := domain.Priority(cmd.Priority)
+        ownerID, err := uuid.Parse(cmd.OwnerID)
+        if err != nil { return domain.ErrInvalidFooID }
+
+        foo, err := domain.NewFoo(title, priority, ownerID)
+        if err != nil { return err }
+        if err := h.repo.Save(ctx, foo); err != nil { return err }
+        if err := h.dispatcher.Dispatch(ctx, foo.PopEvents()); err != nil { return err }
+
+        result = FooDTOFromDomain(foo)
+        return nil
+    })
+    return result, err
 }
 ```
 
 **Properties:**
-- Orchestrates domain objects
-- Defines ports (interfaces) for external dependencies
-- No knowledge of HTTP, databases, or frameworks
-- Transaction boundaries
+- Orchestrates domain objects and ports
+- No knowledge of HTTP, database drivers, or frameworks
+- UoW ensures transactional safety for write operations
+- Query handlers are read-only and skip UoW
 
 ### Adapters Layer
 
-**Location:** `services/*/internal/adapters/`
+**Location:** `modules/foosvc/internal/adapters/`
 
 #### Inbound Adapters
 
-**Contract Adapter** (`adapters/inbound/contracts/inproc_server.go`)
+**Connect RPC Handler** (`adapters/inbound/connect/foo_handler.go`):
 
 ```go
-package contracts
+package connect
 
 import (
-    "context"
-    "github.com/example/.../contracts/definitions/serviceasvc"
-    "github.com/example/.../services/serviceasvc/internal/application/command"
-    "github.com/example/.../services/serviceasvc/internal/application/query"
+    "connectrpc.com/connect"
+    foov1 "github.com/example/mmw-contracts/gen/go/foo/v1"
+    "github.com/example/mmw-contracts/gen/go/foo/v1/foov1connect"
 )
 
-// InprocServer implements the contract interface
-type InprocServer struct {
-    getEntityAQuery  *query.GetEntityAQuery
-    createEntityACmd *command.CreateEntityACommand
+// FooHandler implements the generated foov1connect.FooServiceHandler interface.
+type FooHandler struct {
+    svc *application.FooApplicationService
 }
 
-// NewInprocServer returns the interface type (loose coupling)
-func NewInprocServer(
-    getEntityAQuery *query.GetEntityAQuery,
-    createEntityACmd *command.CreateEntityACommand,
-) serviceasvc.ServiceA {
-    return &InprocServer{
-        getEntityAQuery:  getEntityAQuery,
-        createEntityACmd: createEntityACmd,
-    }
-}
+// Compile-time assertion
+var _ foov1connect.FooServiceHandler = (*FooHandler)(nil)
 
-func (s *InprocServer) GetEntityA(ctx context.Context, id string) (*serviceasvc.ServiceADTO, error) {
-    // 1. Call application layer
-    result, err := s.getEntityAQuery.Execute(ctx, query.GetEntityAInput{ID: id})
-    if err != nil {
-        // 2. Map domain errors to contract errors
-        if errors.Is(err, domain.ErrEntityANotFound) {
-            return nil, serviceasvc.ErrEntityANotFound
-        }
-        return nil, serviceasvc.ErrServiceAUnavailable
-    }
-
-    // 3. Map domain entity to contract DTO
-    return &serviceasvc.ServiceADTO{
-        ID:        result.Entity.ID(),
-        Name:      result.Entity.Name().String(),
-        Bio:       result.Entity.Bio(),
-        AvatarURL: result.Entity.AvatarURL(),
-    }, nil
-}
-```
-
-**HTTP Adapter** (`adapters/inbound/http/handlers/login.go`)
-
-```go
-package handlers
-
-import (
-    "encoding/json"
-    "net/http"
-    "github.com/example/.../internal/application/command"
-)
-
-type LoginHandler struct {
-    loginCmd *command.LoginCommand
-}
-
-type LoginRequest struct {
-    Email    string `json:"email"`
-    Password string `json:"password"`
-}
-
-type LoginResponse struct {
-    Token     string `json:"token"`
-    UserID    string `json:"user_id"`
-    ExpiresAt int64  `json:"expires_at"`
-}
-
-func (h *LoginHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    // 1. Parse HTTP request
-    var req LoginRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "invalid request", http.StatusBadRequest)
-        return
-    }
-
-    // 2. Call application layer
-    output, err := h.loginCmd.Execute(r.Context(), command.LoginInput{
-        Email:    req.Email,
-        Password: req.Password,
+func (h *FooHandler) CreateFoo(
+    ctx context.Context,
+    req *connect.Request[foov1.CreateFooRequest],
+) (*connect.Response[foov1.CreateFooResponse], error) {
+    dto, err := h.svc.CreateFoo(ctx, application.CreateFooCommand{
+        Title:    req.Msg.Title,
+        Priority: req.Msg.Priority,
+        OwnerID:  ownerIDFromContext(ctx),
     })
     if err != nil {
-        // 3. Map errors to HTTP status codes
-        switch {
-        case errors.Is(err, command.ErrInvalidCredentials):
-            http.Error(w, "invalid credentials", http.StatusUnauthorized)
-        default:
-            http.Error(w, "internal error", http.StatusInternalServerError)
-        }
-        return
+        return nil, domainErrToConnect(err)
     }
-
-    // 4. Return HTTP response
-    resp := LoginResponse{
-        Token:     output.Token,
-        UserID:    output.UserID,
-        ExpiresAt: output.ExpiresAt.Unix(),
-    }
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(resp)
+    return connect.NewResponse(&foov1.CreateFooResponse{
+        Foo: fooToProto(dto),
+    }), nil
 }
 ```
+
+**Error mapping:**
+
+| Domain error | Connect status |
+|---|---|
+| `domain.ErrNotFound` | `connect.CodeNotFound` |
+| `domain.ErrTitleEmpty` | `connect.CodeInvalidArgument` |
+| `domain.ErrAlreadyCompleted` | `connect.CodeFailedPrecondition` |
+| other | `connect.CodeInternal` |
 
 #### Outbound Adapters
 
-**Database Adapter** (`adapters/outbound/persistence/postgres/user_repository.go`)
+**Postgres Repository** (`adapters/outbound/persistence/postgres/`):
 
 ```go
-package postgres
-
-import (
-    "context"
-    "database/sql"
-    "github.com/example/.../internal/domain/user"
-)
-
-type UserRepository struct {
-    db *sql.DB
+// PostgresFooRepository implements ports.FooRepository.
+type PostgresFooRepository struct {
+    pool *pgxpool.Pool
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository {
-    return &UserRepository{db: db}
-}
+var _ ports.FooRepository = (*PostgresFooRepository)(nil)
 
-func (r *UserRepository) Save(ctx context.Context, u *user.User) error {
-    query := `
-        INSERT INTO users (id, email, hashed_password, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (id) DO UPDATE SET
-            email = EXCLUDED.email,
-            hashed_password = EXCLUDED.hashed_password,
-            updated_at = EXCLUDED.updated_at
-    `
-    _, err := r.db.ExecContext(ctx, query,
-        u.ID(),
-        u.Email().String(),
-        u.HashedPassword().String(),
-        u.CreatedAt(),
-        u.UpdatedAt(),
+func (r *PostgresFooRepository) Save(ctx context.Context, foo *domain.Foo) error {
+    snap := foo.ToSnapshot()
+    exec := ogluow.GetExecutor(ctx, r.pool) // uses tx if one is active
+    _, err := exec.Exec(ctx,
+        `INSERT INTO foo.foo (id, title, status, priority, owner_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        snap.ID, snap.Title, snap.Status, snap.Priority, snap.OwnerID,
+        snap.CreatedAt, snap.UpdatedAt,
     )
     return err
 }
-
-func (r *UserRepository) FindByEmail(ctx context.Context, email user.Email) (*user.User, error) {
-    query := `SELECT id, email, hashed_password, created_at, updated_at FROM users WHERE email = $1`
-
-    var id, emailStr, passwordStr string
-    var createdAt, updatedAt time.Time
-
-    err := r.db.QueryRowContext(ctx, query, email.String()).Scan(&id, &emailStr, &passwordStr, &createdAt, &updatedAt)
-    if errors.Is(err, sql.ErrNoRows) {
-        return nil, user.ErrUserNotFound
-    }
-    if err != nil {
-        return nil, err
-    }
-
-    // Reconstruct domain entity
-    e, _ := user.NewEmail(emailStr)
-    p := user.NewHashedPassword(passwordStr)
-    return user.Reconstruct(id, e, p, createdAt, updatedAt), nil
-}
 ```
 
-**Service Client Adapter** (`adapters/outbound/authorclient/inproc/client.go`)
+Key points:
+- No ORM — direct `pgx` queries
+- `ogluow.GetExecutor(ctx, pool)` returns the active transaction executor or falls back to pool
+- `ToSnapshot()` / `FromSnapshot()` bridge between domain private fields and the DB
+
+**Outbox Dispatcher** (`adapters/outbound/events/`):
 
 ```go
-package inproc
-
-import (
-    "context"
-    "github.com/example/.../contracts/definitions/authorservice"
-    "github.com/example/.../internal/application/ports"
-)
-
-// Client implements ports.AuthorClient using the contract definition
-type Client struct {
-    contract authorservice.AuthorService
-}
-
-func NewClient(contract authorservice.AuthorService) *Client {
-    return &Client{contract: contract}
-}
-
-func (c *Client) GetAuthor(ctx context.Context, authorID string) (*ports.AuthorInfo, error) {
-    // Call contract
-    dto, err := c.contract.GetAuthor(ctx, authorID)
-    if err != nil {
-        // Map contract errors to application errors
-        if errors.Is(err, authorservice.ErrAuthorNotFound) {
-            return nil, ports.ErrAuthorNotFound
-        }
-        return nil, ports.ErrAuthorServiceDown
+// PostgresOutboxDispatcher writes events to foo.event in the same transaction.
+func (d *PostgresOutboxDispatcher) Dispatch(ctx context.Context, events []domain.DomainEvent) error {
+    exec := ogluow.GetExecutor(ctx, d.pool)
+    for _, evt := range events {
+        payload, _ := json.Marshal(evt)
+        _, err := exec.Exec(ctx,
+            `INSERT INTO foo.event (aggregate_id, event_type, payload) VALUES ($1, $2, $3)`,
+            aggregateID(evt), evt.EventType(), payload,
+        )
+        if err != nil { return err }
     }
-
-    // Map contract DTO to application DTO
-    return &ports.AuthorInfo{
-        ID:        dto.ID,
-        Name:      dto.Name,
-        Bio:       dto.Bio,
-        AvatarURL: dto.AvatarURL,
-    }, nil
+    return nil
 }
 ```
+
+Events are written **in the same transaction** as the business data. A background `EventsRelay` polls the outbox table and publishes to Watermill. This prevents silent event loss on crash between DB commit and publish. See [cross-service-events.md](cross-service-events.md).
 
 ### Infrastructure Layer
 
-**Location:** `services/*/internal/infra/`
+**Location:** `modules/foosvc/internal/infra/`
 
 **Configuration:** `infra/config/config.go`
 
-Each service loads its own configuration via:
+Each module loads its own configuration:
 
 ```go
-cfg, err := config.Load()
+cfg, err := config.Load(ctx, "")
 ```
-
-**Pattern:** 3-layer configuration (defaults → environment-specific → secrets)
-
-**Layers:**
-1. `defaults.yaml` - Base configuration (embedded)
-2. `${APP_ENV}.yaml` - Environment overrides (dev.yaml, prod.yaml - embedded)
-3. Environment variables - Secrets and runtime overrides
 
 **Environment Variables:**
 
@@ -798,331 +604,110 @@ DB_PASSWORD=secret_password
 APP_ENV=prod              # Selects prod.yaml
 HTTP_PORT=:8080
 DB_HOST=db.prod.internal
-DB_USER=service_user
 ```
-
-**Example:**
-
-```bash
-# Development
-APP_ENV=dev DB_PASSWORD=dev_secret go run ./cmd/servicea
-
-# Production
-APP_ENV=prod DB_PASSWORD=prod_secret DB_HOST=db.internal go run ./cmd/servicea
-```
-
-For encrypted environment variables you can use the [Mise SOPS plugin](https://mise.jdx.dev/environments/secrets/sops.html) or [ENVeil](https://github.com/GreatScott/enveil).
 
 ## 5. Runtime Orchestration
 
-### Composition Root (main.go)
+### mmw-platform: Module Lifecycle
 
-**Location:** `cmd/monolith/main.go` or service-specific `cmd/serviceasvc/main.go`
-
-**Structure:**
+**mmw-platform** (`libs/ogl/platform`) provides the `core.Module` interface and the `platform.App` runner. Every feature module must implement this interface:
 
 ```go
-package main
+// libs/ogl/platform/core/app.go
+type Module interface {
+    Start(ctx context.Context) error
+    Close() error
+}
+```
 
-import (
-    "context"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
+Each module exposes:
 
-    "golang.org/x/sync/errgroup"
+- `Infrastructure` struct — lists ALL shared resources the module needs (DB pool, event bus, logger, other module contracts)
+- `Module` struct — holds internal components (HTTP server, outbox relay, logger)
+- `New(Infrastructure) (*Module, error)` — wires all internals, returns ready-to-run module
+- `Start(ctx) error` — starts HTTP server + outbox relay via internal errgroup
+- `Close() error` — releases any module-specific resources
+- `var _ oglcore.Module = (*Module)(nil)` — compile-time interface assertion
 
-    // Contract definitions
-    authorservice "github.com/.../contracts/definitions/authorservice"
+See [mmw-platform.md](mmw-platform.md) for the full reference.
 
-    // Service configs
-    authorconfig "github.com/.../services/authorservice/config"
-    authconfig "github.com/.../services/authservice/config"
+### Composition Root (main.go)
 
-    // Service adapters
-    authoradapters "github.com/.../services/authorservice/internal/adapters/inbound/contracts"
-    authorhttp "github.com/.../services/authorservice/internal/adapters/inbound/http"
-    authadapters "github.com/.../services/authservice"
-    authhttp "github.com/.../services/authservice/internal/adapters/inbound/http"
-)
+**Location:** `cmd/mmw/main.go`
 
+```go
 func main() {
-    // 1. Context with signal handling
     ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
     defer cancel()
 
-    // 2. Load configurations
-    authorCfg, _ := authorconfig.Load()
-    authCfg, _ := authconfig.Load()
+    // 1. Shared resources
+    pool, _ := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+    defer pool.Close()
+    logger := slog.Default()
+    rawBus := gochannel.NewGoChannel(gochannel.Config{}, watermill.NewSlogLogger(logger))
+    eventBus := oglevents.NewWatermillBus(rawBus)
 
-    // 3. Initialize provider service
-    authorServer := authoradapters.NewInprocServer(authorCfg.DB, authorCfg.Logger)
-
-    // 4. Wrap with contract client
-    authorClient := authorservice.NewInprocClient(authorServer)
-
-    // 5. Initialize consumer service
-    authService := authadapters.New(authCfg, authorClient)
-
-    // 6. Create HTTP handlers
-    authorHTTPHandler := authorhttp.NewHandler(authorCfg)
-    authHTTPHandler := authhttp.NewHandler(authCfg, authService)
-
-    // 7. Run services via errgroup (shared fate supervision)
-    // Note: See "Worker Service Pattern" section for non-HTTP services
-    g, gCtx := errgroup.WithContext(ctx)
-
-    // Start Author Service HTTP server
-    g.Go(func() error {
-        server := &http.Server{
-            Addr:    authorCfg.HTTPPort,
-            Handler: authorHTTPHandler,
-        }
-
-        // Graceful shutdown watcher
-        go func() {
-            <-gCtx.Done()  // Fires when ANY service fails
-            log.Println("Shutting down Author Service...")
-            shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-            defer cancel()
-            server.Shutdown(shutdownCtx)
-        }()
-
-        log.Printf("Author Service listening on %s", authorCfg.HTTPPort)
-        if err := server.ListenAndServe(); err != http.ErrServerClosed {
-            return err  // Error triggers shutdown of ALL services
-        }
-
-        return nil
+    // 2. Module factories (dependency order matters)
+    fooModule, _ := foosvc.New(foosvc.Infrastructure{
+        DBPool:   pool,
+        EventBus: eventBus,
+        Logger:   logger,
     })
 
-    // Start Auth Service HTTP server
-    g.Go(func() error {
-        server := &http.Server{
-            Addr:    authCfg.HTTPPort,
-            Handler: authHTTPHandler,
-        }
-
-        // Graceful shutdown watcher
-        go func() {
-            <-gCtx.Done()  // Fires when ANY service fails
-            log.Println("Shutting down Auth Service...")
-            shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-            defer cancel()
-            server.Shutdown(shutdownCtx)
-        }()
-
-        log.Printf("Auth Service listening on %s", authCfg.HTTPPort)
-        if err := server.ListenAndServe(); err != http.ErrServerClosed {
-            return err  // Error triggers shutdown of ALL services
-        }
-
-        return nil
+    barModule, _ := barsvc.New(barsvc.Infrastructure{
+        DBPool:   pool,
+        EventBus: eventBus,
+        FooSvc:   deffoosvc.NewInprocClient(fooModule),
+        Logger:   logger,
     })
 
-    // 7. Wait for all services (blocks until error or signal)
-    if err := g.Wait(); err != nil {
-        log.Fatalf("Monolith shutdown: %v", err)
+    // 3. Register event topics each module publishes
+    for _, topic := range foosvc.NotifyEvents {
+        eventBus.RegisterTopic(topic)
     }
 
-    log.Println("Monolith shutdown gracefully")
+    // 4. Run all modules (shared-fate errgroup)
+    app := platform.New(fooModule, barModule)
+    if err := app.Run(ctx); err != nil {
+        logger.Error("app shutdown", "err", err)
+        os.Exit(1)
+    }
 }
 ```
 
-**Wiring Flow:**
-
-1. `authorServer := NewInprocServer(...)` - Creates server (returns `AuthorService` interface)
-2. `authorClient := NewInprocClient(authorServer)` - Wraps server in client
-3. `authService := New(cfg, authorClient)` - Injects client into consumer
-4. Services run via `errgroup` (shared fate supervision)
+**Wiring flow:**
+1. Shared resources (DB pool, event bus, logger) created once
+2. Module factories called in dependency order (providers before consumers)
+3. `InprocClient` wraps the `*Module` — the contract interface, not the concrete type
+4. `platform.App.Run(ctx)` starts all modules under a shared-fate errgroup
 
 ### Supervision with errgroup
 
-**Pattern:** Shared fate architecture
+**Pattern:** Shared fate architecture — if one module fails, all shut down together.
 
-**Definition:** All services share the same fate - if one fails, all shut down together and the process exits.
-
-Concrete example when Service A fails:
+Concrete example when foosvc fails:
 
 - **WITHOUT shared fate**
-  - Service A: Crashed (for exemple database connection fails)
-  - Service B: Running (but calls to Service A fail)
-  - Service C: Running (partially functional)
+  - foosvc: Crashed (database connection fails)
+  - barsvc: Running (but calls to foosvc fail silently)
   - Result: Zombie monolith in undefined state
-- **WITH shared fate (errgroup)**
-  - Service A: Returns error
-  - errgroup: Cancels context for all services
-  - Service B: Detects gCtx.Done() → graceful shutdown
-  - Service C: Detects gCtx.Done() → graceful shutdown
-  - Process: Exits
-  - Kubernetes: Restarts entire pod with clean state
 
-**Implementation:**
+- **WITH shared fate (platform.App)**
+  - foosvc `Start()` returns error
+  - platform errgroup cancels context for all modules
+  - barsvc `Start()` detects `ctx.Done()` → graceful shutdown
+  - Process exits
+  - Kubernetes restarts entire pod with clean state
 
-```go
-g, gCtx := errgroup.WithContext(ctx)
-
-// Start Service A
-g.Go(func() error {
-    server := &http.Server{Addr: ":8081", Handler: handler}
-
-    // Graceful shutdown watcher
-    go func() {
-        <-gCtx.Done()  // Fires when ANY service fails or signal received
-        shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-        defer cancel()
-        server.Shutdown(shutdownCtx)
-    }()
-
-    // Blocking service until shutdown
-    if err := server.ListenAndServe(); err != http.ErrServerClosed {
-        return err  // Error propagates to errgroup → cancels gCtx
-    }
-
-    return nil
-})
-
-// Start Service B (same pattern)
-g.Go(func() error {
-    // ... similar structure ...
-})
-
-// Wait for all services (blocks until error or signal)
-if err := g.Wait(); err != nil {
-    log.Fatal(err)  // Exit process → orchestrator restarts
-}
-```
-
-**Why this approach:**
-- **Clean state:** Either all services healthy or none running (no partial failures)
-- **Simpler:** No complex health checks or partial failure handling
-- **Reliable:** Orchestrator (Kubernetes/Docker/SystemD) detects exit and restarts fresh pod
-- **Prevents corruption:** Sick service doesn't partially corrupt shared resources
+`platform.App.Run()` internally uses `errgroup.WithContext` across all module `Start()` calls. Each module's internal errgroup (HTTP server + relay) propagates errors up through `Start()` to the platform runner.
 
 **Alternative:** For fine-grained fault tolerance, use [github.com/thejerf/suture](https://github.com/thejerf/suture) for Erlang-style supervision trees.
-
-### Worker Service Pattern (Non-Blocking Services)
-
-Services without HTTP servers (background workers, message consumers, cache warmers) need a different structure. They initialize resources, then block until shutdown.
-
-**Worker Service Structure:**
-
-```go
-// services/workerservice/internal/worker/worker.go
-package worker
-
-import (
-    "context"
-    "database/sql"
-    "fmt"
-    "log"
-    "time"
-)
-
-type Worker struct {
-    db     *sql.DB
-    config *Config
-}
-
-func New(config *Config) *Worker {
-    return &Worker{config: config}
-}
-
-// Run initializes resources and blocks until context is cancelled
-func (w *Worker) Run(ctx context.Context) error {
-    // 1. Initialize database connection
-    db, err := sql.Open("postgres", w.config.DatabaseURL)
-    if err != nil {
-        return fmt.Errorf("failed to connect to database: %w", err)
-    }
-    w.db = db
-    defer db.Close()
-
-    // 2. Verify connection is ready
-    if err := db.PingContext(ctx); err != nil {
-        return fmt.Errorf("database ping failed: %w", err)
-    }
-
-    log.Println("Worker service started (database connected)")
-
-    // 3. Optional: Start background jobs
-    go w.processQueue(ctx)
-
-    // 4. Block until context is cancelled
-    <-ctx.Done()
-
-    // 5. Cleanup on shutdown
-    log.Println("Worker service shutting down...")
-    shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    defer cancel()
-
-    // Wait for in-flight work to complete
-    // Close connections, flush buffers, etc.
-    if err := db.Close(); err != nil {
-        log.Printf("Error closing database: %v", err)
-    }
-
-    log.Println("Worker service shutdown complete")
-    return nil
-}
-
-func (w *Worker) processQueue(ctx context.Context) {
-    ticker := time.NewTicker(10 * time.Second)
-    defer ticker.Stop()
-
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-ticker.C:
-            // Process work from queue
-            w.doWork(ctx)
-        }
-    }
-}
-
-func (w *Worker) doWork(ctx context.Context) {
-    // Business logic here
-}
-```
-
-**Using Worker in main.go:**
-
-```go
-// cmd/monolith/main.go
-
-// Initialize worker service
-workerService := worker.New(workerCfg)
-
-// Start via errgroup (same as HTTP services)
-g.Go(func() error {
-    return workerService.Run(gCtx)
-})
-```
-
-**Key Points:**
-
-1. **`Run(ctx)` method:** Provides standard interface like HTTP servers
-2. **Initialize resources:** Database connections, message queue clients, etc.
-3. **Block on `<-ctx.Done()`:** Keeps goroutine alive until shutdown
-4. **Graceful cleanup:** Close connections, wait for in-flight work
-5. **main.go stays clean:** Just calls `workerService.Run(gCtx)`
-
-**Pattern works for:**
-- Background job processors
-- Message queue consumers (RabbitMQ, Kafka)
-- Cache warmers
-- Database connection pools
-- Any service needing initialization without HTTP
 
 ## 6. Protobuf Integration
 
 ### When to Use Protobuf
 
-Use protobuf when services need network transport. Skip for in-process only.
+Use protobuf when modules need network transport. Skip for in-process only.
 
 ### Directory Structure
 
@@ -1130,34 +715,34 @@ Use protobuf when services need network transport. Skip for in-process only.
 contracts/
 ├── proto/                  # Source of truth (clean)
 │   ├── buf.yaml
-│   └── servicea/v1/
-│       └── servicea.proto
+│   └── foo/v1/
+│       └── foo.proto
 └── gen/                    # Generated code (do not edit)
-    ├── go/servicea/v1/
-    │   ├── servicea.pb.go
-    │   └── serviceav1connect/servicea.connect.go
-    └── ts/servicea/v1/
+    └── go/foo/v1/
+        ├── foo.pb.go
+        └── foov1connect/foo.connect.go
 ```
 
 ### Protobuf Definition
 
-**File:** `contracts/proto/servicea/v1/servicea.proto`
+**File:** `contracts/proto/foo/v1/foo.proto`
 
 ```protobuf
 syntax = "proto3";
-package servicea.v1;
-option go_package = "github.com/.../contracts/gen/go/servicea/v1;serviceav1";
+package foo.v1;
+option go_package = "github.com/example/mmw-contracts/gen/go/foo/v1;foov1";
 
-message EntityA {
+message Foo {
   string id = 1;
-  string name = 2;
-  string bio = 3;
-  string avatar_url = 4;
+  string title = 2;
+  string status = 3;
+  string priority = 4;
+  string owner_id = 5;
 }
 
-service ServiceAService {
-  rpc GetEntityA(GetEntityARequest) returns (GetEntityAResponse);
-  rpc CreateEntityA(CreateEntityARequest) returns (CreateEntityAResponse);
+service FooService {
+  rpc CreateFoo(CreateFooRequest) returns (CreateFooResponse);
+  rpc GetFoo(GetFooRequest) returns (GetFooResponse);
 }
 ```
 
@@ -1166,12 +751,12 @@ service ServiceAService {
 **File:** `contracts/buf.gen.yaml`
 
 ```yaml
-version: v1
+version: v2
 plugins:
-  - plugin: go
+  - remote: buf.build/protocolbuffers/go
     out: gen/go
     opt: paths=source_relative
-  - plugin: connect-go
+  - remote: buf.build/connectrpc/go
     out: gen/go
     opt: paths=source_relative
 ```
@@ -1192,65 +777,40 @@ buf breaking --against '.git#branch=main'
 
 ### Using Generated Code
 
-**Contract Definition with Protobuf:**
+The generated `foov1connect` package provides the `FooServiceHandler` interface that the Connect inbound adapter must implement:
 
 ```go
-// contracts/definitions/serviceasvc/dto.go
-import serviceav1 "github.com/.../contracts/gen/go/servicea/v1"
+// modules/foosvc/internal/adapters/inbound/connect/foo_handler.go
 
-// Use generated protobuf types
-type ServiceADTO = serviceav1.EntityA
+// Compile-time assertion — fails build if FooHandler is missing any method
+var _ foov1connect.FooServiceHandler = (*FooHandler)(nil)
 ```
 
-**Network Client:**
-
-```go
-// adapters/outbound/authorclient/connect/client.go
-import (
-    serviceav1connect "github.com/.../contracts/gen/go/servicea/v1/serviceav1connect"
-    "connectrpc.com/connect"
-)
-
-type Client struct {
-    client serviceav1connect.ServiceAServiceClient
-}
-
-func NewClient(baseURL string) *Client {
-    httpClient := &http.Client{Timeout: 5 * time.Second}
-    client := serviceav1connect.NewServiceAServiceClient(httpClient, baseURL)
-    return &Client{client: client}
-}
-
-func (c *Client) GetAuthor(ctx context.Context, id string) (*ports.AuthorInfo, error) {
-    req := connect.NewRequest(&serviceav1.GetEntityARequest{Id: id})
-    resp, err := c.client.GetEntityA(ctx, req)
-    // Handle response
-}
-```
+**Transport swapping:** The same `FooHandler` works for both network (Connect over HTTP) and in-process (InprocClient) transport. The composition root decides which path to use — no application code changes. See [protobuf-contracts.md](protobuf-contracts.md).
 
 ## 7. Testing & Operations
 
 ### Test Organization
 
-**Unit Tests:** Co-located with code (`*_test.go`)
-- Location: `internal/domain/**/*_test.go`, `internal/application/**/*_test.go`
-- Purpose: Test business logic in isolation
-- Dependencies: None (pure functions)
+**Domain unit tests:** Co-located with domain code
+- Location: `modules/foosvc/internal/domain/*_test.go`
+- Purpose: Business rules, value object validation, state transitions
+- Dependencies: None (pure functions, no mocks needed)
 
-**Integration Tests:** Co-located with adapters
-- Location: `internal/adapters/**/*_test.go`
-- Purpose: Test adapters with real infrastructure
-- Dependencies: Real database, cache, services
+**Application unit tests:** Co-located with handlers
+- Location: `modules/foosvc/internal/application/**/*_test.go`
+- Purpose: Command/query handlers with mock ports
+- Dependencies: Mock implementations of `FooRepository`, `EventDispatcher`, `UnitOfWork`
 
-**Contract Tests:** Per-service provider tests
-- Location: `services/*/test/contract/`
-- Purpose: Verify service implements its contract correctly
-- Provider tests its own contract, not consumer
+**Adapter integration tests:** Co-located with adapters
+- Location: `modules/foosvc/internal/adapters/**/*_test.go`
+- Purpose: Repository + real DB (testcontainers), Connect handler
+- Dependencies: Real database via testcontainers
 
-**E2E Tests:** Root-level cross-service tests
+**E2E tests:** Root-level cross-module tests
 - Location: `test/e2e/`
-- Purpose: Complete user journeys across all services
-- Dependencies: Full system running with services' composition
+- Purpose: Full HTTP request → DB → response journeys
+- Dependencies: Full system
 
 ### Operational Commands
 
@@ -1258,11 +818,11 @@ func (c *Client) GetAuthor(ctx context.Context, id string) (*ports.AuthorInfo, e
 # Run full workspace tests
 go test ./...
 
-# Build all services
-go build ./services/...
+# Build the monolith binary
+go build -o bin/mmw ./cmd/mmw
 
-# Run specific service
-go run ./services/serviceasvc/cmd/serviceasvc
+# Run standalone module
+go run ./modules/foosvc/cmd/foosvc
 
 # Verify module dependencies
 go mod verify
@@ -1272,11 +832,17 @@ go get -u ./...
 
 # Tidy all dependencies
 go mod tidy
+
+# Generate protobuf code
+cd contracts && buf generate
+
+# Lint proto files
+cd contracts && buf lint
 ```
 
 ### Architecture Validation
 
-**Tool:** `arch-test` (optional, in `tools/arch-test/`)
+**Tool:** `arch-test` (in `tools/arch-test/`)
 
 See [arch-test implementation](./arch-test.md)
 
@@ -1286,100 +852,38 @@ go run ./tools/arch-test
 
 # Checks:
 # - Contract definitions have zero dependencies
-# - No service imports another service's internal/
-# - Dependency flow rules (domain <- application <- adapters)
-# - libs or pkg directory never imports services
+# - No module imports another module's internal/
+# - Dependency flow rules (domain ← application ← adapters)
+# - libs/ogl never imports modules/
 ```
 
 ## Deployment
 
-**Monolith Mode:**
-- Build single binary: `go build ./cmd/monolith`
-- Deploy as single container
-- All services run in one process
+**Monolith Mode (default):**
+```bash
+# Build single binary running all modules in one process
+go build -o bin/mmw ./cmd/mmw
+```
 
 **Distributed Mode:**
 
-To distribute services, swap in-process clients for network clients in `main.go`. Only the wiring changes; application layer stays unchanged.
+To distribute modules, swap the `InprocClient` for a network Connect client in `main.go`. Only the wiring changes; application code stays unchanged.
 
 **Before (In-Process):**
 ```go
-// cmd/monolith/main.go
-
-import (
-    authorservice "github.com/.../contracts/definitions/authorservice"
-    authoradapters "github.com/.../services/authorservice/internal/adapters/inbound/contracts"
-    authorclientInproc "github.com/.../services/authservice/internal/adapters/outbound/authorclient/inproc"
-)
-
-// Create in-process server
-authorServer := authoradapters.NewInprocServer(authorCfg)
-
-// Wrap in contract client
-authorContract := authorservice.NewInprocClient(authorServer)
-
-// Wrap in adapter
-authorClient := authorclientInproc.NewClient(authorContract)
-
-// Inject authorClient into service
-authService := authservice.New(authCfg, authorClient)
-```
-
-**After (Network/Connect):**
-
-*Author Service (provider):*
-```go
-// cmd/authorservice/main.go (separate binary)
-
-import (
-    authorconnect "github.com/.../services/authorservice/internal/adapters/inbound/connect"
-)
-
-// Create Connect server (HTTP handler exposing the service)
-authorConnectHandler := authorconnect.NewHandler(authorCfg)
-
-// Start HTTP server
-g.Go(func() error {
-    server := &http.Server{
-        Addr:    ":8081",
-        Handler: authorConnectHandler,  // Connect HTTP endpoint
-    }
-    return server.ListenAndServe()
+// cmd/mmw/main.go
+fooModule, _ := foosvc.New(foosvc.Infrastructure{...})
+barModule, _ := barsvc.New(barsvc.Infrastructure{
+    FooSvc: deffoosvc.NewInprocClient(fooModule), // in-process
 })
 ```
 
-*Auth Service (consumer):*
+**After (Network/Connect):**
 ```go
-// cmd/authservice/main.go (separate binary)
-
-import (
-    authorclientConnect "github.com/.../services/authservice/internal/adapters/outbound/authorclient/connect"
-)
-
-// Create network client pointing to Author Service URL
-authorClient := authorclientConnect.NewClient("https://author-service.internal:8081")
-
-// Inject authorClient into service (same interface!)
-authService := authservice.New(authCfg, authorClient)
+// barsvc deployed separately; foosvc exposed over HTTP
+barModule, _ := barsvc.New(barsvc.Infrastructure{
+    FooSvc: deffoosvc.NewConnectClient("https://foosvc.internal"), // network
+})
 ```
 
-**What changed:**
-
-- *Provider side (authorservice):*
-  - Inbound adapter: `inbound/contracts` → `inbound/connect`
-  - Server: InprocServer → Connect HTTP server
-- *Consumer side (authservice):*
-  - Outbound adapter: `outbound/authorclient/inproc` → `outbound/authorclient/connect`
-  - Client: InprocClient(server) → Connect client with URL
-- *Application layer:* No changes - same interfaces, same business logic
-
-**Deployment:**
-```bash
-# Build separate binaries
-go build -o bin/authorservice ./services/authorservice/cmd/authorservice
-go build -o bin/authservice ./services/authservice/cmd/authservice
-
-# Deploy as separate containers
-docker run -e APP_ENV=prod authorservice
-docker run -e APP_ENV=prod -e AUTHOR_SERVICE_URL=https://author-service authservice
-```
+The `FooApplicationService` inside barsvc calls the same `FooService` interface — it never knows whether the transport is in-process or network.

@@ -15,7 +15,7 @@ Even with a well-designed architecture, common anti-patterns can undermine its b
 **Example:**
 ```go
 // ✗ BAD: Business logic in contract definition
-package serviceasvc
+package foosvc
 
 func (dto *ServiceADTO) IsPopular() bool {
     return dto.FollowerCount > 10000  // Business rule in contract definition!
@@ -48,14 +48,14 @@ func CalculateRating(articles, followers int) float64 {
 **Example:**
 ```
 ✗ BAD: Too granular
-services/
+modules/
 ├── user-creation-svc/      # Just creates users
 ├── user-validation-svc/    # Just validates users
 ├── user-notification-svc/  # Just sends user emails
 └── user-storage-svc/       # Just stores users
 
 ✓ GOOD: Cohesive boundary
-services/
+modules/
 └── usersvc/                # Manages user lifecycle
     └── internal/
         ├── domain/
@@ -132,11 +132,11 @@ func CreateArticle(ctx context.Context, req CreateArticleRequest) error {
 package command
 
 import (
-    "github.com/.../contracts/definitions/serviceasvc"  // Wrong layer!
+    "github.com/.../contracts/definitions/foosvc"  // Wrong layer!
 )
 
 type CreateArticleCommand struct {
-    authorService serviceasvc.AuthorService  // Directly coupled to contract definition
+    authorService foosvc.AuthorService  // Directly coupled to contract definition
 }
 ```
 
@@ -200,3 +200,30 @@ func GetInternalState(service interface{}) map[string]interface{} {
 
 **Why it happens:** "It compiles, ship it" mentality, treating architecture as documentation instead of enforceable design.
 
+## Broken Module Interface
+
+**Symptom:** Build error: `*Module does not implement oglcore.Module`
+
+**Cause:** A module's `Start` method has the wrong signature, is missing,
+or is on a value receiver instead of a pointer receiver.
+
+**Prevention:** The compile-time assertion in every module file:
+
+```go
+var _ oglcore.Module = (*Module)(nil)
+```
+
+This line makes the problem a build error rather than a runtime panic.
+The build fails immediately at `cmd/mmw/main.go` when the modules slice
+is constructed.
+
+**Wrong (won't satisfy interface):**
+```go
+func (m Module) Start(ctx context.Context) error { ... }   // value receiver
+func (m *Module) Run(ctx context.Context) error { ... }    // wrong method name
+```
+
+**Right:**
+```go
+func (m *Module) Start(ctx context.Context) error { ... }  // pointer receiver, correct name
+```

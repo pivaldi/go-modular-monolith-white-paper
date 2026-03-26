@@ -1,106 +1,69 @@
-# Complete Protobuf Workflow
+# Complete Protobuf + Connect Workflow
 
-When you're ready to add network transport, follow this workflow.
+End-to-end: from `.proto` definition to a running Connect handler.
 
-## Service-Specific vs Global Generation
+## Directory Layout
 
-This architecture supports two generation strategies:
+```
+contracts/
+├── buf.yaml                        ← buf workspace config
+├── buf.gen.yaml                    ← code generation config
+├── proto/
+│   └── foo/v1/
+│       └── foo.proto
+└── gen/
+    └── go/
+        └── foo/v1/
+            ├── foo.pb.go           ← protobuf messages
+            └── foov1connect/
+                └── foo.connect.go  ← Connect handler interface + client
+```
 
-| Strategy | When to Use | Command | Config File |
-|----------|-------------|---------|-------------|
-| **Service-Specific** | Development, service builds | `buf generate --template buf.gen.servicea.yaml` | `buf.gen.<service>.yaml` |
-| **Global** | CI, full rebuilds, releasing | `buf generate` | `buf.gen.yaml` |
-
-**Service-Specific Benefits:**
-- ✓ Faster builds (only regenerate what you need)
-- ✓ Language selection (Go-only for backend, TS-only for frontend)
-- ✓ Isolation (changes to other APIs don't affect your build)
-- ✓ Clear dependencies (each service owns its generation config)
-
-**When to Use Global:**
-- CI/CD pipelines that build all services
-- Before creating releases or tags
-- When updating shared protobuf dependencies
-- Initial setup or major refactoring
-
-## 1. Define Service Contract
-
-**File: `contracts/proto/servicea/v1/servicea.proto`**
+## Step 1: Define the Proto
 
 ```protobuf
+// contracts/proto/foo/v1/foo.proto
 syntax = "proto3";
 
-package servicea.v1;
+package foo.v1;
 
-option go_package = "github.com/example/service-manager/contracts/gen/go/servicea/v1;serviceav1";
+option go_package = "github.com/example/mmw-contracts/gen/go/foo/v1;foov1";
 
-service ServiceAService {
-  rpc GetServiceA(GetServiceARequest) returns (GetServiceAResponse) {}
-  rpc CreateServiceA(CreateServiceARequest) returns (CreateServiceAResponse) {}
+service FooService {
+  rpc CreateFoo(CreateFooRequest) returns (CreateFooResponse);
+  rpc GetFoo(GetFooRequest)       returns (GetFooResponse);
+  rpc CompleteFoo(CompleteFooRequest) returns (CompleteFooResponse);
+  rpc DeleteFoo(DeleteFooRequest) returns (DeleteFooResponse);
+  rpc ListFoos(ListFoosRequest)   returns (ListFoosResponse);
 }
 
-message ServiceA {
-  string id = 1;
-  string name = 2;
-  string bio = 3;
-  string website = 4;
-  int64 created_at = 5;
-  int64 updated_at = 6;
-}
+message CreateFooRequest  { string title = 1; string priority = 2; }
+message CreateFooResponse { Foo foo = 1; }
+message GetFooRequest     { string id = 1; }
+message GetFooResponse    { Foo foo = 1; }
+message CompleteFooRequest { string id = 1; }
+message CompleteFooResponse {}
+message DeleteFooRequest  { string id = 1; }
+message DeleteFooResponse {}
+message ListFoosRequest   {}
+message ListFoosResponse  { repeated Foo foos = 1; }
 
-message GetServiceARequest {
-  string id = 1;
-}
-
-message GetServiceAResponse {
-  ServiceA servicea = 1;
-}
-
-message CreateServiceARequest {
-  string name = 1;
-  string bio = 2;
-  string website = 3;
-}
-
-message CreateServiceAResponse {
-  ServiceA servicea = 1;
+message Foo {
+  string id       = 1;
+  string title    = 2;
+  string status   = 3;
+  string priority = 4;
+  string owner_id = 5;
 }
 ```
 
-## 2. Generate Code
-
-### Create Service-Specific Generation Config
-
-For each service, create a `buf.gen.<service>.yaml` in the contracts directory:
-
-**File: `contracts/buf.gen.servicea.yaml`**
+## Step 2: Configure buf
 
 ```yaml
-# contracts/buf.gen.servicea.yaml - Generate only Service A API
+# contracts/buf.yaml
 version: v2
-managed:
-  enabled: false
-inputs:
-  - directory: .
-    paths:
-      - proto/servicea  # Filter to only Service A protos
-plugins:
-  # Go: protobuf types
-  - remote: buf.build/protocolbuffers/go
-    out: gen/go
-    opt: paths=source_relative
-  # Go: Connect RPC stubs
-  - remote: buf.build/connectrpc/go
-    out: gen/go
-    opt: paths=source_relative
-```
-
-### Create Per-Service Buf Module Config (if needed)
-
-**File: `contracts/proto/servicea/buf.yaml`**
-
-```yaml
-version: v2
+modules:
+  - path: proto
 lint:
   use:
     - STANDARD
@@ -109,205 +72,112 @@ breaking:
     - FILE
 ```
 
-### Run Generation
+```yaml
+# contracts/buf.gen.yaml
+version: v2
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt:
+      - paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: gen/go
+    opt:
+      - paths=source_relative
+```
 
-Run from the contracts directory using the service-specific template:
+## Step 3: Generate Code
 
 ```bash
-cd contracts
-buf generate --template buf.gen.servicea.yaml
-
-# Generated files (Go):
-# - gen/go/servicea/v1/servicea.pb.go
-# - gen/go/servicea/v1/serviceav1connect/servicea.connect.go
-
-# Generated files (TypeScript, if ts plugins are configured):
-# - gen/ts/servicea/v1/servicea_pb.ts
-# - gen/ts/servicea/v1/servicea_connect.ts
+cd contracts && buf generate
 ```
 
-**Alternative: Global Generation (CI/Full Builds)**
+This produces:
+- `gen/go/foo/v1/foo.pb.go` — Go structs for all messages
+- `gen/go/foo/v1/foov1connect/foo.connect.go` — `FooServiceHandler` interface + `NewFooServiceHandler` + `NewFooServiceClient`
 
-```bash
-cd contracts
-buf generate  # Uses buf.gen.yaml, generates ALL APIs
-
-# Generates code for all services in proto/:
-# - gen/go/servicea/v1/...
-# - gen/go/serviceb/v1/...
-# - gen/ts/servicea/v1/...
-# - gen/ts/serviceb/v1/...
-```
-
-### Integration with Service Build Tools
-
-Add generation task to your service's `mise.toml`:
-
-```toml
-# services/serviceasvc/mise.toml
-[tasks.generate]
-description = "Generate code from protobuf definitions (Service A API only)"
-run = """
-cd ../../contracts
-buf generate --template buf.gen.servicea.yaml
-"""
-
-[tasks.build]
-description = "Build the application binary"
-depends = ["generate"]  # Auto-generate before building
-run = "go build -o bin/serviceasvc ./cmd/serviceasvc"
-```
-
-Now `mise build` will automatically regenerate only the Service A API before building.
-
-## 3. Implement Connect Handler (Inbound Adapter)
+## Step 4: Implement the Handler
 
 ```go
-// services/serviceasvc/internal/adapters/inbound/connect/handlers/servicea_handler.go
-package handlers
+// modules/foosvc/internal/adapters/inbound/connect/foo_handler.go
+package connectadapter
 
 import (
     "context"
     "connectrpc.com/connect"
-
-    serviceav1 "github.com/example/service-manager/contracts/gen/go/servicea/v1"
-    "github.com/example/service-manager/contracts/gen/go/servicea/v1/serviceav1connect"
-    "github.com/example/service-manager/services/serviceasvc/internal/application/command"
-    "github.com/example/service-manager/services/serviceasvc/internal/application/query"
+    foov1 "github.com/example/mmw-contracts/gen/go/foo/v1"
+    "github.com/example/mmw-contracts/gen/go/foo/v1/foov1connect"
+    "github.com/example/mmw-foosvc/internal/application"
+    "github.com/example/mmw-foosvc/internal/application/dto"
 )
 
-type ServiceAHandler struct {
-    getServiceAQuery  *query.GetServiceAQuery
-    createServiceACmd *command.CreateServiceACommand
+type FooHandler struct{ svc *application.FooApplicationService }
+
+var _ foov1connect.FooServiceHandler = (*FooHandler)(nil)
+
+func NewFooHandler(svc *application.FooApplicationService) *FooHandler {
+    return &FooHandler{svc: svc}
 }
 
-func NewServiceAHandler(
-    getServiceAQuery *query.GetServiceAQuery,
-    createServiceACmd *command.CreateServiceACommand,
-) *ServiceAHandler {
-    return &ServiceAHandler{
-        getServiceAQuery:  getServiceAQuery,
-        createServiceACmd: createServiceACmd,
-    }
-}
-
-// Ensure we implement the interface
-var _ serviceav1connect.ServiceAServiceHandler = (*ServiceAHandler)(nil)
-
-func (h *ServiceAHandler) GetServiceA(
+func (h *FooHandler) CreateFoo(
     ctx context.Context,
-    req *connect.Request[serviceav1.GetServiceARequest],
-) (*connect.Response[serviceav1.GetServiceAResponse], error) {
-    // Call application layer
-    result, err := h.getServiceAQuery.Execute(ctx, req.Msg.Id)
+    req *connect.Request[foov1.CreateFooRequest],
+) (*connect.Response[foov1.CreateFooResponse], error) {
+    ownerID, _ := ownerIDFromContext(ctx)
+    result, err := h.svc.CreateFoo(ctx, dto.CreateFooCommand{
+        Title:    req.Msg.Title,
+        Priority: req.Msg.Priority,
+        OwnerID:  ownerID,
+    })
     if err != nil {
-        return nil, connect.NewError(connect.CodeNotFound, err)
+        return nil, domainErrToConnect(err)
     }
-
-    // Map to protobuf
-    servicea := &serviceav1.ServiceA{
-        Id:        result.ID,
-        Name:      result.Name,
-        Bio:       result.Bio,
-        Website:   result.Website,
-        CreatedAt: result.CreatedAt.Unix(),
-        UpdatedAt: result.UpdatedAt.Unix(),
-    }
-
-    return connect.NewResponse(&serviceav1.GetServiceAResponse{
-        Servicea: servicea,
+    return connect.NewResponse(&foov1.CreateFooResponse{
+        Foo: &foov1.Foo{
+            Id:       result.ID,
+            Title:    result.Title,
+            Status:   result.Status,
+            Priority: result.Priority,
+            OwnerId:  result.OwnerID,
+        },
     }), nil
 }
 ```
 
-## 4. Create Connect Client (Outbound Adapter)
+## Step 5: Register in Module Factory
 
 ```go
-// services/servicebsvc/internal/adapters/outbound/serviceaclient/connect/client.go
-package connect
-
-import (
-    "context"
-    "net/http"
-
-    "connectrpc.com/connect"
-    serviceav1 "github.com/example/service-manager/contracts/gen/go/servicea/v1"
-    "github.com/example/service-manager/contracts/gen/go/servicea/v1/serviceav1connect"
-    "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
+// modules/foosvc/foosvc.go — inside New()
+mux := http.NewServeMux()
+path, handler := foov1connect.NewFooServiceHandler(
+    connectadapter.NewFooHandler(appSvc),
+    connect.WithInterceptors(oglconnect.NewErrorLoggingInterceptor(infra.Logger)),
 )
-
-type Client struct {
-    client serviceav1connect.ServiceAServiceClient
-}
-
-func NewClient(baseURL string, httpClient *http.Client) *Client {
-    if httpClient == nil {
-        httpClient = http.DefaultClient
-    }
-
-    client := serviceav1connect.NewServiceAServiceClient(
-        httpClient,
-        baseURL,
-    )
-
-    return &Client{client: client}
-}
-
-func (c *Client) GetServiceA(ctx context.Context, serviceaID string) (*ports.ServiceAInfo, error) {
-    req := connect.NewRequest(&serviceav1.GetServiceARequest{
-        Id: serviceaID,
-    })
-
-    resp, err := c.client.GetServiceA(ctx, req)
-    if err != nil {
-        return nil, translateError(err)
-    }
-
-    servicea := resp.Msg.Servicea
-    return &ports.ServiceAInfo{
-        ID:   servicea.Id,
-        Name: servicea.Name,
-        Bio:  servicea.Bio,
-    }, nil
-}
-
-func translateError(err error) error {
-    var connectErr *connect.Error
-    if errors.As(err, &connectErr) {
-        switch connectErr.Code() {
-        case connect.CodeNotFound:
-            return ports.ErrServiceANotFound
-        default:
-            return ports.ErrServiceAServiceDown
-        }
-    }
-    return err
-}
+mux.Handle(path, connectadapter.NewAuthMiddleware(
+    infra.BarSvc, infra.Logger, nil, handler,
+))
 ```
 
-## 5. Wire Based on Configuration
+## Network vs In-Process
 
+The same `FooHandler` is used for both. Only the composition root changes:
+
+**In-process (monolith):**
 ```go
-// services/servicebsvc/cmd/servicebsvc/main.go
-func main() {
-    cfg := infra.LoadConfig()
+// cmd/mmw/main.go — no Connect client needed
+barModule, _ := barsvc.New(barsvc.Infrastructure{
+    FooSvc: deffoosvc.NewInprocClient(fooModule),
+})
+```
 
-    var serviceaClient ports.ServiceAClient
-
-    if cfg.UseInProcessContracts {
-        // In-process via contract definition
-        serviceaServer := getServiceAServiceInprocServer()
-        serviceaContract := serviceasvc.NewInprocClient(serviceaServer)
-        serviceaClient = inproc.NewClient(serviceaContract)
-    } else {
-        // Network via Connect
-        serviceaClient = connect.NewClient(cfg.ServiceAServiceURL, &http.Client{
-            Timeout: 5 * time.Second,
-        })
-    }
-
-    // Wire the rest of the service
-    deps := infra.InitializeDependencies(cfg, serviceaClient)
-    // ...
-}
+**Network (microservice split):**
+```go
+// cmd/bar/main.go — after extracting foosvc to its own process
+fooClient := foov1connect.NewFooServiceClient(
+    http.DefaultClient,
+    "https://foosvc.internal",
+)
+barModule, _ := barsvc.New(barsvc.Infrastructure{
+    FooSvc: fooClient, // satisfies deffoosvc.FooService if DTOs match
+})
 ```

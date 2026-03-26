@@ -26,9 +26,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
+      - uses: bufbuild/buf-setup-action@v1
       - run: go work sync
       - run: go mod verify
+      - run: buf lint
+        working-directory: contracts
+      - run: buf generate
+        working-directory: contracts
+      - run: git diff --exit-code
+        name: Verify generated code is up to date
 
   arch-check:
     runs-on: ubuntu-latest
@@ -76,7 +83,7 @@ A comprehensive validation tool that checks:
 **Module Dependencies:**
 - Contract definition modules have literally ZERO dependencies (no `require` statements in go.mod)
 - Contract definition modules contain ONLY: interfaces, DTOs, errors, and InprocClient (thin wrapper)
-- InprocServer lives in service internal adapters (not in contract definition)
+- InprocClient wraps the implementation; it lives in the contract definition module
 - Services depend only on: contract definitions, contracts (optional), and standard libraries
 - No circular dependencies between modules (at go.mod level - compiler already prevents package-level cycles)
 - Dependency graph flows in correct direction: consumer → contract definition → (nothing)
@@ -114,7 +121,7 @@ Use these companion tools to visualize and analyze your dependency graph:
   godepgraph -s github.com/yourorg/yourproject | dot -Tpng -o deps.png
 
   # Focus on specific package
-  godepgraph -s -o github.com/yourorg/yourproject/services/servicebsvc | dot -Tpng -o servicebsvc-deps.png
+  godepgraph -s -o github.com/yourorg/yourproject/modules/barsvc | dot -Tpng -o barsvc-deps.png
   ```
 
 - **[goda](https://github.com/loov/goda)** (Advanced)
@@ -134,7 +141,7 @@ Use these companion tools to visualize and analyze your dependency graph:
   goda tree "./..."
 
   # Analyze specific service dependencies
-  goda graph "reach(./services/servicebsvc/...)" | dot -Tpng -o servicebsvc-reach.png
+  goda graph "reach(./modules/barsvc/...)" | dot -Tpng -o barsvc-reach.png
   ```
 
 - **[graphdot](https://github.com/ewohltman/graphdot)** (Module-level)
@@ -169,13 +176,13 @@ Example CI failure message:
 ```
 ✗ Architecture validation failed
 
-Checking: service-isolation
-  ✗ FAILED: services/servicebsvc/internal/adapters/outbound/helper.go
-    imports services/serviceasvc/internal/domain/entitya
-    (cross-service internal import)
+Checking: module-isolation
+  ✗ FAILED: modules/barsvc/internal/adapters/outbound/helper.go
+    imports modules/foosvc/internal/domain/entity
+    (cross-module internal import)
 
-Fix: Remove direct import of serviceasvc internals.
-      Use contracts/definitions/serviceasvc instead.
+Fix: Remove direct import of foosvc internals.
+      Use contracts/definitions/foosvc instead.
 ```
 
 ### Additional Validation Rules
@@ -220,33 +227,14 @@ func checkDomainCoverage() error {
 
 ## Observability
 
-**Metrics (Prometheus):**
-
-```go
-// services/servicebsvc/internal/infra/observability/metrics.go
-var (
-    HTTPRequestsTotal = promauto.NewCounterVec(...)
-    LoginAttemptsTotal = promauto.NewCounterVec(...)
-    ActiveSessionsGauge = promauto.NewGauge(...)
-    DatabaseQueryDuration = promauto.NewHistogramVec(...)
-)
-```
-
 **Logging (Structured):**
 
 ```go
-logger.Info(ctx, "user logged in",
-    ports.LogField{Key: "user_id", Value: userID},
-    ports.LogField{Key: "trace_id", Value: traceID},
+// modules/foosvc/internal/adapters/inbound/connect/foo_handler.go
+slog.InfoContext(ctx, "foo created",
+    slog.String("foo_id", foo.ID().String()),
+    slog.String("owner_id", req.Msg.OwnerId),
 )
-```
-
-**Tracing (OpenTelemetry):**
-
-```go
-tracer := otel.Tracer("servicebsvc")
-ctx, span := tracer.Start(ctx, "LoginCommand.Execute")
-defer span.End()
 ```
 
 ## Deployment
@@ -258,17 +246,17 @@ defer span.End()
 
 **Production Options:**
 
-**Option 1: Single deployment (all services in one process)**
+**Option 1: Single deployment (all modules in one process)**
 ```bash
-# Build single binary that runs all services
-go build -o bin/service-manager ./cmd/sm
+# Build single binary that runs all modules
+go build -o bin/mmw ./cmd/mmw
 ```
 
 **Option 2: Separate deployments (distributed)**
 ```bash
-# Build separate binaries
-go build -o bin/servicebsvc ./services/servicebsvc/cmd/servicebsvc
-go build -o bin/serviceasvc ./services/serviceasvc/cmd/serviceasvc
+# Build separate module binaries
+go build -o bin/foosvc ./modules/foosvc/cmd/foosvc
+go build -o bin/barsvc ./modules/barsvc/cmd/barsvc
 
 # Deploy to separate pods/hosts
 # Services use Connect/HTTP to communicate

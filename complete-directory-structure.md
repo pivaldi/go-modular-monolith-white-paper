@@ -1,328 +1,146 @@
 # Complete Directory Structure
 
+Full annotated layout of an `mmw`-style monorepo with two feature
+modules (`foosvc`, `barsvc`), a shared library (`ogl`), and a contract
+module.
+
 ```
-service-manager/
-├── go.work                    # Go workspace definition
-│                              # use (./contracts ./contracts/definitions/serviceasvc ./services/...)
+mmw/
+├── go.work                               ← workspace: coordinates all modules
+├── go.work.sum
 │
-├── mise.toml                  # Root orchestration tasks
+├── config/                               ← shared app config (root module)
+│   └── config.go                         ← mmwconfig.Load() — DB URL, log level, etc.
 │
-├── buf.yaml                   # Buf workspace config (lint/breaking rules across all modules)
+├── cmd/
+│   └── mmw/
+│       └── main.go                       ← composition root: wires all modules
 │
-├── contracts/                # Unified contracts module
-│   ├── go.mod                # Module: github.com/example/service-manager/contracts
-│   ├── buf.gen.yaml          # Code generation config (run `buf generate` from here)
-│   ├── README.md             # Contract versioning strategy
-│   │
-│   ├── definitions/          # Contract Definitions (pure Go interfaces)
-│   │   │                     # ZERO dependencies - truly dependency-free
-│   │   │
-│   │   ├── serviceasvc/      # Service A public API
-│   │   │   ├── go.mod        # Module: contracts/definitions/serviceasvc v1.0.0
-│   │   │   │                 # Dependencies: ZERO (truly dependency-free)
-│   │   │   │
-│   │   │   ├── README.md     # Contract usage documentation
-│   │   │   │
-│   │   │   ├── api.go        # Public service interface
-│   │   │   │   #[code go]
-│   │   │   │   # type ServiceAService interface {
-│   │   │   │   #   GetServiceA(ctx, id) (*ServiceADTO, error)
-│   │   │   │   #   CreateServiceA(ctx, req) (*ServiceADTO, error)
-│   │   │   │   # }
-│   │   │   │   #[endcode]
-│   │   │   │
-│   │   │   ├── dto.go        # Domain-friendly DTOs
-│   │   │   │   # type ServiceADTO struct { ID, Name, Bio string }
-│   │   │   │
-│   │   │   ├── errors.go     # Public error types
-│   │   │   │   # var ErrServiceANotFound = errors.New("entity not found")
-│   │   │   │
-│   │   │   └── inproc_client.go  # In-process client (thin wrapper)
-│   │   │       # Implements ServiceAService interface
-│   │   │       # Accepts ServiceAService interface (not concrete type!)
-│   │   │       # Calls via interface (function call, no network)
-│   │   │
-│   │   └── servicebsvc/      # Service B public API (similar structure)
+├── contracts/                            ← go module: mmw-contracts
+│   ├── go.mod                            ← module github.com/example/mmw-contracts
+│   ├── buf.yaml                          ← buf lint + breaking change config
+│   ├── buf.gen.yaml                      ← connect-go + protobuf code gen config
+│   ├── definitions/
+│   │   ├── foosvc/                       ← go module: mmw-contracts/definitions/foosvc
+│   │   │   ├── go.mod                    ← ZERO dependencies
+│   │   │   ├── api.go                    ← FooService interface
+│   │   │   ├── dto.go                    ← request/response types
+│   │   │   ├── errors.go                 ← public error sentinels
+│   │   │   └── inproc_client.go          ← wraps any FooService impl behind interface
+│   │   └── barsvc/                       ← go module: mmw-contracts/definitions/barsvc
 │   │       ├── go.mod
 │   │       ├── api.go
 │   │       ├── dto.go
 │   │       ├── errors.go
 │   │       └── inproc_client.go
-│   │
-│   ├── proto/                # CLEAN: Protobuf schemas only (OPTIONAL - for network transport)
-│   │   ├── buf.yaml          # Buf module config (marks this as the proto root)
-│   │   ├── servicea/v1/
-│   │   │   └── servicea.proto   # Service A protobuf definition
-│   │   └── serviceb/v1/
-│   │       └── serviceb.proto   # Service B protobuf definition
-│   │
-│   └── gen/                  # DIRTY: Generated code from protobuf (do not edit manually)
-│       ├── go/               # Go generated code (language first, then service)
-│       │   ├── servicea/v1/
-│       │   │   ├── servicea.pb.go          # Generated protobuf types
-│       │   │   └── serviceav1connect/
-│       │   │       └── servicea.connect.go # Generated Connect stubs
-│       │   │
-│       │   └── serviceb/v1/
-│       │       ├── serviceb.pb.go          # Generated protobuf types
-│       │       └── servicebv1connect/
-│       │           └── serviceb.connect.go # Generated Connect stubs
-│       │
-│       └── ts/               # Generated TypeScript code (language first, then service)
-│           ├── package.json  # npm package: @example/contracts
-│           ├── servicea/v1/
-│           │   ├── servicea_pb.ts        # Generated protobuf types
-│           │   └── servicea_connect.ts   # Generated Connect stubs
-│           └── serviceb/v1/
-│               ├── serviceb_pb.ts        # Generated
-│               └── serviceb_connect.ts   # Generated
+│   ├── proto/
+│   │   ├── foo/v1/foo.proto
+│   │   └── bar/v1/bar.proto
+│   └── gen/
+│       └── go/
+│           ├── foo/v1/
+│           │   ├── foo.pb.go
+│           │   └── foov1connect/foo.connect.go
+│           └── bar/v1/
+│               ├── bar.pb.go
+│               └── barv1connect/bar.connect.go
 │
-├── services/
+├── modules/
+│   ├── foosvc/                           ← go module: mmw-foosvc
+│   │   ├── go.mod
+│   │   ├── foosvc.go                     ← Module{}, Infrastructure{}, New(), Start()
+│   │   ├── cmd/foosvc/main.go            ← optional standalone entry point
+│   │   └── internal/
+│   │       ├── domain/
+│   │       │   ├── foo.go                ← Foo aggregate root
+│   │       │   ├── value_objects.go      ← FooID, FooTitle, FooStatus, Priority
+│   │       │   ├── events.go             ← domain events + AllEvents slice
+│   │       │   ├── snapshot.go           ← FooSnapshot, ToSnapshot, FromSnapshot
+│   │       │   └── errors.go             ← domain error sentinels
+│   │       ├── application/
+│   │       │   ├── service.go            ← FooApplicationService (facade)
+│   │       │   ├── command/
+│   │       │   │   ├── create_foo.go     ← CreateFooHandler
+│   │       │   │   ├── complete_foo.go   ← CompleteFooHandler
+│   │       │   │   └── delete_foo.go     ← DeleteFooHandler
+│   │       │   ├── query/
+│   │       │   │   ├── get_foo.go        ← GetFooHandler
+│   │       │   │   └── list_foos.go      ← ListFoosHandler
+│   │       │   ├── dto/
+│   │       │   │   └── foo_dto.go        ← commands, queries, FooDTO
+│   │       │   └── ports/
+│   │       │       ├── repository.go     ← FooRepository interface
+│   │       │       ├── events.go         ← EventDispatcher interface
+│   │       │       └── uow.go            ← UnitOfWork interface
+│   │       ├── adapters/
+│   │       │   ├── inbound/
+│   │       │   │   └── connect/
+│   │       │   │       ├── foo_handler.go       ← Connect RPC handler
+│   │       │   │       ├── auth_middleware.go   ← JWT validation middleware
+│   │       │   │       └── errors.go            ← domain error → Connect code
+│   │       │   └── outbound/
+│   │       │       ├── persistence/
+│   │       │       │   └── postgres/
+│   │       │       │       └── foo_repository.go ← PostgresFooRepository
+│   │       │       └── events/
+│   │       │           └── outbox_dispatcher.go  ← PostgresOutboxDispatcher
+│   │       └── infra/
+│   │           ├── config/
+│   │           │   └── config.go         ← module-level config (port, env)
+│   │           └── persistence/
+│   │               └── migrations/
+│   │                   ├── 001_create_foo_table.sql
+│   │                   └── 002_create_event_table.sql
 │   │
-│   ├── servicebsvc/              # Service B
-│   │   ├── go.mod            # Module: services/servicebsvc v2.1.0
-│   │   │                     # Dependencies: contracts/definitions/serviceasvc, contracts (optional)
-│   │   │
-│   │   ├── README.md         # Service documentation
-│   │   ├── mise.toml         # Service-specific tasks
-│   │   ├── Dockerfile
-│   │   │
-│   │   ├── cmd/
-│   │   │   └── servicebsvc/
-│   │   │       └── main.go   # Composition root
-│   │   │           # Wires dependencies:
-│   │   │           # - In dev: uses serviceasvc.InprocClient
-│   │   │           # - In prod: uses serviceasvcconnect.Client
-│   │   │
-│   │   ├── test/             # Service-level tests
-│   │   │   └── contract/     # CONTRACT TESTS (verify servicebsvc's own API contracts)
-│   │   │       └── http_api_test.go  # Tests servicebsvc HTTP responses match spec
-│   │   │
-│   │   └── internal/         # PRIVATE - cannot be imported by other services
-│   │       │
-│   │       ├── domain/       # DOMAIN LAYER (pure business logic)
-│   │       │   │             # UNIT TESTS (co-located *_test.go)
-│   │       │   │             # No external dependencies
-│   │       │   │             # No adapters, no infrastructure
-│   │       │   │
-│   │       │   ├── user/     # User aggregate
-│   │       │   │   ├── user.go           # Entity (aggregate root)
-│   │       │   │   ├── user_test.go      # UNIT TEST
-│   │       │   │   ├── email.go          # Value object
-│   │       │   │   ├── email_test.go     # UNIT TEST
-│   │       │   │   ├── password.go       # Value object
-│   │       │   │   ├── password_test.go  # UNIT TEST
-│   │       │   │   └── repository.go     # Repository interface (port)
-│   │       │   │
-│   │       │   ├── session/  # Session aggregate
-│   │       │   │   ├── session.go        # Entity
-│   │       │   │   ├── session_test.go   # UNIT TEST
-│   │       │   │   ├── token.go          # Value object
-│   │       │   │   └── repository.go     # Repository interface
-│   │       │   │
-│   │       │   └── errors.go # Domain errors
-│   │       │
-│   │       ├── application/  # APPLICATION LAYER (use cases)
-│   │       │   │             # UNIT TESTS (co-located *_test.go with mocked ports)
-│   │       │   │             # Orchestrates domain objects
-│   │       │   │             # Depends on: domain, ports (interfaces only)
-│   │       │   │
-│   │       │   ├── command/  # Write operations
-│   │       │   │   ├── login.go          # Login use case
-│   │       │   │   ├── login_test.go     # UNIT TEST (mocked ports)
-│   │       │   │   ├── logout.go         # Logout use case
-│   │       │   │   ├── register.go       # Registration use case
-│   │       │   │   ├── register_test.go  # UNIT TEST (mocked ports)
-│   │       │   │   └── change_password.go
-│   │       │   │
-│   │       │   ├── query/    # Read operations
-│   │       │   │   ├── get_user.go
-│   │       │   │   ├── get_user_test.go  # UNIT TEST (mocked ports)
-│   │       │   │   └── validate_token.go
-│   │       │   │
-│   │       │   ├── dto/      # Application DTOs
-│   │       │   │   ├── user_dto.go
-│   │       │   │   └── session_dto.go
-│   │       │   │
-│   │       │   └── ports/    # APPLICATION PORTS (interfaces)
-│   │       │       │         # Owned by application layer
-│   │       │       │         # Implemented by adapters
-│   │       │       │
-│   │       │       ├── servicea_client.go  # Outbound port
-│   │       │       │   #[code go]
-│   │       │       │   # type ServiceAClient interface {
-│   │       │       │   #   GetEntityA(ctx, id) (*EntityA, error)
-│   │       │       │   # }
-│   │       │       │   #[endcode]
-│   │       │       │
-│   │       │       ├── cache.go          # Outbound port
-│   │       │       ├── logger.go         # Outbound port
-│   │       │       └── event_publisher.go
-│   │       │
-│   │       ├── adapters/     # ADAPTERS LAYER (I/O boundaries)
-│   │       │   │             # INTEGRATION TESTS (co-located *_test.go with real infrastructure)
-│   │       │   │             # Implements ports from application layer
-│   │       │   │
-│   │       │   ├── inbound/  # Inbound adapters (primary/driving)
-│   │       │   │   │         # External world -> Application
-│   │       │   │   │
-│   │       │   │   ├── http/ # HTTP REST adapter
-│   │       │   │   │   ├── server.go
-│   │       │   │   │   ├── server_test.go        # INTEGRATION TEST (real HTTP)
-│   │       │   │   │   ├── handlers/
-│   │       │   │   │   │   ├── login.go
-│   │       │   │   │   │   ├── login_test.go     # INTEGRATION TEST
-│   │       │   │   │   │   ├── logout.go
-│   │       │   │   │   │   └── register.go
-│   │       │   │   │   ├── middleware/
-│   │       │   │   │   └── dto/
-│   │       │   │   │
-│   │       │   │   └── connect/  # Connect/gRPC adapter (optional)
-│   │       │   │       ├── server.go
-│   │       │   │       └── handlers/
-│   │       │   │           └── serviceb_handler.go
-│   │       │   │
-│   │       │   └── outbound/ # Outbound adapters (secondary/driven)
-│   │       │       │         # Application -> External systems
-│   │       │       │
-│   │       │       ├── persistence/  # Database adapters
-│   │       │       │   ├── postgres/
-│   │       │       │   │   ├── user_repository.go
-│   │       │       │   │   ├── user_repository_test.go  # INTEGRATION TEST (real DB)
-│   │       │       │   │   ├── session_repository.go
-│   │       │       │   │   ├── session_repository_test.go  # INTEGRATION TEST
-│   │       │       │   │   └── migrations/
-│   │       │       │   │
-│   │       │       │   └── memory/   # In-memory (testing)
-│   │       │       │
-│   │       │       ├── serviceaclient/  # Service A client adapters
-│   │       │       │   ├── inproc/   # In-process adapter (TODAY)
-│   │       │       │   │   ├── client.go
-│   │       │       │   │   │   # Implements ports.ServiceAClient
-│   │       │       │   │   │   # Uses serviceasvc.InprocClient
-│   │       │       │   │   │   # Zero network overhead
-│   │       │       │   │   └── client_test.go     # INTEGRATION TEST
-│   │       │       │   │
-│   │       │       │   └── connect/  # Network adapter (LATER)
-│   │       │       │       ├── client.go
-│   │       │       │       │   # Implements ports.ServiceAClient
-│   │       │       │       │   # Uses serviceasvcconnect.Client
-│   │       │       │       │   # Network overhead (HTTP, serialization)
-│   │       │       │       └── client_test.go     # INTEGRATION TEST
-│   │       │       │
-│   │       │       ├── cache/
-│   │       │       │   ├── redis/
-│   │       │       │   │   ├── cache.go
-│   │       │       │   │   └── cache_test.go      # INTEGRATION TEST (real Redis)
-│   │       │       │   └── memory/
-│   │       │       │
-│   │       │       └── logger/
-│   │       │           └── zap/
-│   │       │
-│   │       └── infra/        # INFRASTRUCTURE LAYER
-│   │           │             # Technical concerns, wiring
-│   │           │
-│   │           ├── config/   # Configuration management
-│   │           ├── wire/     # Dependency injection (optional)
-│   │           ├── database/ # DB connection management
-│   │           ├── observability/
-│   │           └── server/   # Server lifecycle
-│   │
-│   └── serviceasvc/            # Service A (similar structure)
-│       ├── go.mod            # Module: services/serviceasvc v1.0.0
-│       │                     # Dependencies: contracts/definitions/serviceasvc (to implement server)
-│       │
-│       ├── cmd/serviceasvc/
-│       │   └── main.go       # Wires serviceasvc.InprocServer to internal/application
-│       │
-│       ├── test/             # Service-level tests
-│       │   └── contract/     # CONTRACT TESTS (verify serviceasvc implements contract correctly)
-│       │       ├── contracts_test.go      # Tests InprocServer implements serviceasvc.ServiceAService
-│       │       └── http_api_test.go       # Tests HTTP API matches spec
-│       │
-│       └── internal/
-│           ├── domain/       # UNIT TESTS (co-located *_test.go)
-│           │   └── entitya/   # Entity A aggregate
-│           │       ├── entitya.go
-│           │       ├── entitya_test.go    # UNIT TEST
-│           │       ├── entitya_id.go
-│           │       ├── name.go
-│           │       ├── name_test.go      # UNIT TEST
-│           │       └── repository.go
-│           │
-│           ├── application/  # UNIT TESTS (co-located *_test.go with mocked ports)
-│           │   ├── command/
-│           │   │   ├── create_entitya.go
-│           │   │   ├── create_entitya_test.go  # UNIT TEST (mocked ports)
-│           │   │   └── update_entitya.go
-│           │   │
-│           │   ├── query/
-│           │   │   ├── get_entitya.go
-│           │   │   ├── get_entitya_test.go     # UNIT TEST (mocked ports)
-│           │   │   └── list_entitya.go
-│           │   │
-│           │   └── ports/
-│           │       ├── image_client.go
-│           │       └── logger.go
-│           │
-│           ├── adapters/     # INTEGRATION TESTS (co-located *_test.go with real infrastructure)
-│           │   ├── inbound/      # Inbound adapters (primary/driving)
-│           │   │   │
-│           │   │   ├── contracts/   # Contract adapter (in-process)
-│           │   │   │   ├── inproc_server.go
-│           │   │   │   │   # Implements serviceasvc.ServiceAService interface
-│           │   │   │   │   # Wraps serviceasvc/internal/application
-│           │   │   │   │   # CAN import serviceasvc/internal (same module!)
-│           │   │   │   │   # Returns ServiceAService interface for loose coupling
-│           │   │   │   └── inproc_server_test.go  # INTEGRATION TEST
-│           │   │   │
-│           │   │   ├── http/     # HTTP REST adapter
-│           │   │   │   ├── server.go
-│           │   │   │   └── server_test.go         # INTEGRATION TEST
-│           │   │   │
-│           │   │   └── connect/  # Connect/gRPC adapter
-│           │   │       └── ...
-│           │   │
-│           │   └── outbound/
-│           │       ├── persistence/postgres/
-│           │       │   ├── entitya_repository.go
-│           │       │   └── entitya_repository_test.go  # INTEGRATION TEST (real DB)
-│           │       ├── imageclient/
-│           │       └── cache/
-│           │
-│           └── infra/
+│   └── barsvc/                           ← go module: mmw-barsvc (same layout)
+│       ├── go.mod
+│       ├── barsvc.go
+│       └── internal/ ...
+│
+├── libs/
+│   └── ogl/                              ← go module: ogl (shared library)
+│       ├── go.mod
+│       ├── platform/
+│       │   ├── core/
+│       │   │   └── app.go                ← core.Module interface
+│       │   ├── runner.go                 ← platform.App + Run()
+│       │   ├── server/
+│       │   │   └── server.go             ← oglserver.HTTPServer (health, debug routes)
+│       │   ├── events/
+│       │   │   ├── bus.go                ← SystemEventBus interface
+│       │   │   └── watermill.go          ← WatermillBus implementation
+│       │   ├── connect/
+│       │   │   └── interceptors.go       ← error logging interceptor
+│       │   └── middleware/
+│       │       ├── cors.go
+│       │       ├── logging.go
+│       │       └── recovery.go
+│       ├── pg/
+│       │   └── uow/                      ← Unit of Work (transaction management)
+│       ├── db/
+│       │   └── outbox/                   ← EventsRelay (outbox poller/publisher)
+│       ├── slog/                         ← structured logger setup
+│       └── config/                       ← config loading helpers
+│
+├── deployments/
+│   └── docker-compose.yml                ← PostgreSQL + any other infra
 │
 ├── tools/
-│   └── arch-test/            # Architectural boundary enforcement
-│       └── main.go           # Validates import rules in CI
+│   └── arch-test/
+│       └── main.go                       ← import boundary validator
 │
-├── docs/
-│   ├── architecture/
-│   │   ├── decisions/        # Architecture Decision Records
-│   │   └── diagrams/
-│   │
-│   └── development/
-│       ├── local-setup.md
-│       ├── testing-guide.md
-│       └── adding-a-service.md
-│
-└── test/                     # Cross-service tests (see testing-strategy.md)
-    └── e2e/                  # E2E TESTS (full system, complete user journeys)
+└── test/
+    └── e2e/
         ├── go.mod
-        ├── user_journey_test.go      # E2E TEST
-        ├── auth_flow_test.go         # E2E TEST
-        └── fixtures/
-            ├── docker-compose.yml
-            └── seed_data.sql
+        └── foo_test.go                   ← end-to-end tests (HTTP → DB)
 ```
 
-## Test Organization Summary
+## Test Organisation
 
-- **Unit Tests**: Co-located in `services/*/internal/domain/**/*_test.go` and `services/*/internal/application/**/*_test.go`
-- **Integration Tests**: Co-located in `services/*/internal/adapters/**/*_test.go` (with real infrastructure)
-- **Contract Tests**: Per-service in `services/*/test/contract/` (each service tests its OWN API contracts, HTTP responses, etc.)
-- **E2E Tests**: Root-level `test/e2e/` (complete user journeys across all services)
-
-**Important:** Contract tests live in the **PROVIDER** service, not the consumer. Example: `services/serviceasvc/test/contract/contracts_test.go` verifies that serviceasvc correctly implements `serviceasvc.ServiceAService`. The consumer (servicebsvc) never imports the provider's implementation.
-
-See [testing-strategy.md](testing-strategy.md) for detailed testing guidance.
+| Layer | Location | What it tests |
+|---|---|---|
+| Domain unit | `modules/foosvc/internal/domain/*_test.go` | Business rules, value object validation, state transitions |
+| Application unit | `modules/foosvc/internal/application/**/*_test.go` | Command/query handlers with mock ports |
+| Adapter integration | `modules/foosvc/internal/adapters/**/*_test.go` | Repository + DB (testcontainers), Connect handler |
+| Contract | `contracts/definitions/foosvc/*_test.go` | InprocClient satisfies interface |
+| E2E | `test/e2e/` | Full HTTP request → DB → response |

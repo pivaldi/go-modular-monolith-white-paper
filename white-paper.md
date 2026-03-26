@@ -266,10 +266,10 @@ Each service uses clean architecture internally:
 
 ```mermaid
 graph TB
-    subgraph monorepo["Service Manager (Monorepo)"]
-        contracts["contracts/<br/>(proto)<br/><br/>serviceasvc.proto"]
-        contract_def["contracts/definitions/<br/>(public)<br/><br/>serviceasvc/<br/>api.go<br/>dto.go<br/>inproc_*.go"]
-        services["services/<br/>(private)<br/><br/>servicebsvc/<br/>internal/<br/><br/>serviceasvc/<br/>internal/"]
+    subgraph monorepo["mmw (Monorepo)"]
+        contracts["contracts/<br/>(proto)<br/><br/>foo.proto"]
+        contract_def["contracts/definitions/<br/>(public)<br/><br/>foosvc/<br/>api.go<br/>dto.go<br/>inproc_client.go"]
+        services["modules/<br/>(private)<br/><br/>barsvc/<br/>internal/<br/><br/>foosvc/<br/>internal/"]
 
         services -->|uses| contract_def
         contract_def -->|generates from| contracts
@@ -285,33 +285,33 @@ graph TB
 **In-Process:**
 ```mermaid
 graph LR
-    servicebsvc["servicebsvc"] -->|calls| inproc_client["contract.InprocClient"]
-    inproc_client -->|calls| inproc_server["contract.InprocServer"]
-    inproc_server -->|calls| serviceasvc_internal["serviceasvc/internal"]
+    barsvc["barsvc"] -->|calls| inproc_client["deffoosvc.InprocClient"]
+    inproc_client -->|calls| foosvc_module["*foosvc.Module"]
+    foosvc_module -->|calls| foosvc_internal["foosvc/internal"]
 
     note["Performance: &lt;1μs latency, zero serialization"]
 
-    style servicebsvc fill:#e1f5ff
+    style barsvc fill:#e1f5ff
     style inproc_client fill:#fff4e1
-    style inproc_server fill:#fff4e1
-    style serviceasvc_internal fill:#ffe1e1
+    style foosvc_module fill:#fff4e1
+    style foosvc_internal fill:#ffe1e1
 ```
 
 **Distributed:**
 ```mermaid
 graph LR
-    servicebsvc["servicebsvc"] -->|HTTP request| connect_client["Connect Client"]
+    barsvc["barsvc"] -->|HTTP request| connect_client["Connect Client"]
     connect_client -->|network| http["HTTP"]
     http -->|network| connect_server["Connect Server"]
-    connect_server -->|calls| serviceasvc_internal["serviceasvc/internal"]
+    connect_server -->|calls| foosvc_internal["foosvc/internal"]
 
     note["Performance: 1-5ms latency, protobuf serialization"]
 
-    style servicebsvc fill:#e1f5ff
+    style barsvc fill:#e1f5ff
     style connect_client fill:#fff4e1
     style http fill:#f0f0f0
     style connect_server fill:#fff4e1
-    style serviceasvc_internal fill:#ffe1e1
+    style foosvc_internal fill:#ffe1e1
 ```
 
 ## Architecture Deep Dive
@@ -326,7 +326,7 @@ See the file [complete-directory-structure.md](complete-directory-structure.md).
 
 Each service is an independent Go module because:
 - **Compiler enforces boundaries** - Service A physically cannot import Service B's `internal/` package
-- **Independent dependency graphs** - `servicebsvc` doesn't inherit `serviceasvc`'s PostgreSQL driver
+- **Independent dependency graphs** - `barsvc` doesn't inherit `foosvc`'s PostgreSQL driver
 - **Independent versioning** - Services can evolve at different rates
 - **Clear ownership** - Each module has its own `go.mod` showing dependencies
 - **Future extraction** - Already a separate module, easy to move to separate repo
@@ -342,7 +342,7 @@ Contract definitions provide truly independent service boundaries:
 - **Flexible implementation** - Same contract interface works for in-process and network transports
 - **Testability** - Easy to mock the contract interface
 
-**Key architectural principle:** Contract definitions contain ONLY interfaces, DTOs, errors, and thin client wrappers. All implementations (including InprocServer) live in service internal adapters, where they can access the service's application layer.
+**Key architectural principle:** Contract definitions contain ONLY interfaces, DTOs, errors, and the thin `InprocClient` wrapper. The concrete implementation (the `*Module` type) lives in the module itself — not in the contract definition.
 
 #### 3. Why Optional Protobuf?
 
@@ -497,14 +497,14 @@ See the file: [example-composition-root-managed-by-errgroup.md](example-composit
 See the file [cross-service-events.md](cross-service-events.md).
 
 ### Lifecycle Visualization
-The following diagram illustrates how the errgroup acts as a safety net. Note how an error in serviceasvc propagates to stop servicebsvc immediately.
+The following diagram illustrates how the errgroup acts as a safety net. Note how an error in foosvc propagates to stop barsvc immediately.
 
 ```mermaid
 sequenceDiagram
     participant Main as Composition Root
     participant G as ErrGroup
-    participant A as ServiceAService
-    participant B as ServiceBService
+    participant A as FooModule
+    participant B as BarModule
 
     Main->>G: g.Go(ServiceAService)
     Main->>G: g.Go(ServiceBService)
@@ -523,9 +523,27 @@ sequenceDiagram
     Note over B: Graceful Shutdown
     B-->>G: Returns nil (Success)
 
-    G-->>Main: Returns Error from ServiceAService
+    G-->>Main: Returns Error from FooModule
     Main->>Main: os.Exit(1) -> K8s Restart
 ```
+
+### mmw-platform: The Module Runner
+
+The platform runner (`libs/ogl/platform`) provides the infrastructure that wires the supervisor pattern into every module automatically. Instead of writing raw errgroup boilerplate in `main.go`, each module implements the `core.Module` interface:
+
+```go
+// libs/ogl/platform/core/app.go
+type Module interface {
+    Start(ctx context.Context) error
+    Close() error
+}
+```
+
+`platform.App.Run(ctx)` starts all registered modules concurrently under a shared-fate errgroup. If any module's `Start()` returns an error, the platform cancels the context for all other modules.
+
+Each module's `Start()` method runs its own internal errgroup (HTTP server + outbox relay), so a failure in either component propagates upward to the platform runner.
+
+See [mmw-platform.md](mmw-platform.md) for the full reference including the `Infrastructure` struct pattern, `New()` factory wiring, and the composition root walkthrough.
 
 ### Why "Shared Fate"?
 

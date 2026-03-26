@@ -19,18 +19,17 @@ Test at multiple levels to ensure correctness and maintainability.
 **Focus:** Business logic in isolation
 
 ```go
-// services/servicebsvc/internal/domain/user/user_test.go
-func TestUser_ChangePassword(t *testing.T) {
-    u := user.NewUser("user-123",
-        user.MustNewEmail("user@example.com"),
-        user.MustHashPassword("oldpass123"),
+// modules/barsvc/internal/domain/foo/foo_test.go
+func TestFoo_UpdateName(t *testing.T) {
+    f := foo.NewFoo("foo-123",
+        foo.MustNewName("initial-name"),
     )
 
-    err := u.ChangePassword("oldpass123", "newpass456")
+    err := f.UpdateName("updated-name")
 
     require.NoError(t, err)
-    assert.True(t, u.VerifyPassword("newpass456"))
-    assert.False(t, u.VerifyPassword("oldpass123"))
+    assert.Equal(t, "updated-name", f.Name())
+    assert.False(t, f.Name() == "initial-name")
 }
 ```
 
@@ -45,33 +44,32 @@ func TestUser_ChangePassword(t *testing.T) {
 **Focus:** Orchestration logic with mocked ports
 
 ```go
-// services/servicebsvc/internal/application/command/login_test.go
-func TestLoginCommand_Execute(t *testing.T) {
+// modules/barsvc/internal/application/command/create_foo_test.go
+func TestCreateFooCommand_Execute(t *testing.T) {
     // Setup mocks
-    userRepo := mocks.NewUserRepository(t)
-    sessionRepo := mocks.NewSessionRepository(t)
-    serviceaClient := mocks.NewServiceAClient(t)
+    fooRepo := mocks.NewFooRepository(t)
+    eventDispatcher := mocks.NewEventDispatcher(t)
+    foosvcClient := mocks.NewFooServiceClient(t)
 
     // Mock expectations
-    userRepo.On("FindByEmail", ctx, testEmail).Return(testUser, nil)
-    sessionRepo.On("Save", ctx, mock.Anything).Return(nil)
-    serviceaClient.On("GetServiceA", ctx, "user-123").Return(&ports.ServiceAInfo{
-        Name: "John Doe",
+    fooRepo.On("Save", ctx, mock.Anything).Return(nil)
+    eventDispatcher.On("Dispatch", ctx, mock.Anything).Return(nil)
+    foosvcClient.On("GetFoo", ctx, "foo-123").Return(&ports.FooInfo{
+        Name: "my-foo",
     }, nil)
 
     // Execute
-    cmd := command.NewLoginCommand(userRepo, sessionRepo, serviceaClient, logger)
-    result, err := cmd.Execute(ctx, command.LoginInput{
-        Email:    "user@example.com",
-        Password: "password123",
+    cmd := command.NewCreateFooCommand(fooRepo, eventDispatcher, foosvcClient, logger)
+    result, err := cmd.Execute(ctx, command.CreateFooInput{
+        Name: "my-foo",
     })
 
     // Assert
     require.NoError(t, err)
-    assert.NotEmpty(t, result.Token)
-    assert.Equal(t, "John Doe", result.ServiceAName)
+    assert.NotEmpty(t, result.ID)
+    assert.Equal(t, "my-foo", result.Name)
 
-    userRepo.AssertExpectations(t)
+    fooRepo.AssertExpectations(t)
 }
 ```
 
@@ -191,8 +189,8 @@ packages:
 **Focus:** Adapters with real external systems
 
 ```go
-// services/servicebsvc/internal/adapters/outbound/persistence/postgres/user_repository_test.go
-func TestUserRepository_Save(t *testing.T) {
+// modules/barsvc/internal/adapters/outbound/persistence/postgres/foo_repository_test.go
+func TestFooRepository_Save(t *testing.T) {
     if testing.Short() {
         t.Skip("Skipping integration test")
     }
@@ -200,18 +198,17 @@ func TestUserRepository_Save(t *testing.T) {
     db := integration.SetupTestDB(t)
     defer integration.TeardownTestDB(t, db)
 
-    repo := postgres.NewUserRepository(db)
-    u := user.NewUser("user-123",
-        user.MustNewEmail("user@example.com"),
-        user.MustHashPassword("password123"),
+    repo := postgres.NewFooRepository(db)
+    f := domain.NewFoo("foo-123",
+        foo.MustNewName("my-foo"),
     )
 
-    err := repo.Save(context.Background(), u)
+    err := repo.Save(context.Background(), f)
     require.NoError(t, err)
 
-    found, err := repo.FindByID(context.Background(), "user-123")
+    found, err := repo.FindByID(context.Background(), "foo-123")
     require.NoError(t, err)
-    assert.Equal(t, u.Email(), found.Email())
+    assert.Equal(t, f.Name(), found.Name())
 }
 ```
 
@@ -228,32 +225,32 @@ func TestUserRepository_Save(t *testing.T) {
 **Important:** Contract tests live in the **PROVIDER** service, not the consumer. Each service tests its own implementation of its contract interface.
 
 ```go
-// services/serviceasvc/test/contract/contracts_test.go
-func TestServiceAService_ContractImplementation(t *testing.T) {
-    // Setup: Initialize serviceasvc with test data
-    // This is serviceasvc testing its OWN implementation
-    app := setupTestServiceAService(t)
+// modules/foosvc/test/contract/contracts_test.go
+func TestFooService_ContractImplementation(t *testing.T) {
+    // Setup: Initialize foosvc with test data
+    // This is foosvc testing its OWN implementation
+    app := setupTestFooService(t)
     defer app.Cleanup()
 
-    // Create InprocServer (the contract implementation serviceasvc provides)
-    server := inbound_contracts.NewInprocServer(
-        app.GetServiceAQuery,
-        app.CreateServiceACommand,
+    // Create InprocClient (the contract implementation foosvc provides)
+    client := inbound_contracts.NewInprocClient(
+        app.GetFooQuery,
+        app.CreateFooCommand,
         // ... other dependencies
     )
 
-    // Test that it correctly implements serviceasvc.ServiceAService interface
-    servicea, err := server.GetServiceA(context.Background(), "test-servicea-123")
+    // Test that it correctly implements foosvc.FooService interface
+    foo, err := client.GetFoo(context.Background(), "test-foo-123")
     require.NoError(t, err)
-    assert.Equal(t, "Test Service A", servicea.Name)
+    assert.Equal(t, "Test Foo", foo.Name)
 
     // Test error contract
-    _, err = server.GetServiceA(context.Background(), "nonexistent")
-    assert.ErrorIs(t, err, serviceasvc.ErrServiceANotFound)
+    _, err = client.GetFoo(context.Background(), "nonexistent")
+    assert.ErrorIs(t, err, foosvc.ErrFooNotFound)
 
     // Test DTO mapping (domain entity → contract DTO)
-    assert.NotEmpty(t, servicea.ID)
-    assert.NotEmpty(t, servicea.CreatedAt)
+    assert.NotEmpty(t, foo.ID)
+    assert.NotEmpty(t, foo.CreatedAt)
 }
 ```
 
@@ -269,23 +266,19 @@ func TestServiceAService_ContractImplementation(t *testing.T) {
 **Focus:** Full user scenarios
 
 ```go
-// test/e2e/user_registration_test.go
-func TestUserRegistrationFlow(t *testing.T) {
+// test/e2e/foo_flow_test.go
+func TestFooCreationFlow(t *testing.T) {
     env := helpers.StartE2EEnvironment(t)
     defer env.Stop()
 
-    // Register
-    registerResp, err := env.AuthClient.Register(ctx, "user@example.com", "SecurePass123!")
+    // Create a Foo
+    createResp, err := env.FooClient.CreateFoo(ctx, "my-foo")
     require.NoError(t, err)
 
-    // Create Service A profile
-    serviceaResp, err := env.ServiceAClient.CreateServiceA(ctx, "Jane Smith", "Writer")
+    // Retrieve the Foo via barsvc
+    getResp, err := env.BarClient.GetFoo(ctx, createResp.ID)
     require.NoError(t, err)
-
-    // Login
-    loginResp, err := env.ServiceBClient.Login(ctx, "user@example.com", "SecurePass123!")
-    require.NoError(t, err)
-    assert.Equal(t, "Jane Smith", loginResp.ServiceAName)
+    assert.Equal(t, "my-foo", getResp.Name)
 }
 ```
 
@@ -308,7 +301,7 @@ go test ./... -coverprofile=coverage.out
 go tool cover -html=coverage.out
 
 # Specific service
-cd services/serviceasvc
+cd modules/foosvc
 go test ./...
 
 # Integration tests only

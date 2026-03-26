@@ -1,116 +1,65 @@
-# Service A Contract Definition
+# Contract Files Quick Reference
 
-The contract definition contains ONLY the public API contract: interfaces, DTOs, errors, and the thin client wrapper. It has **zero dependencies**.
+Minimal file content for a contract definition module. Copy and adjust
+`foo` → your module name.
 
-## Contract Definition Structure
+## File layout
 
 ```
-contracts/definitions/serviceasvc/
-├── go.mod              # No dependencies (literally zero!)
-├── api.go              # ServiceAService interface
-├── dto.go              # Data transfer objects
-├── errors.go           # Public error types
-└── inproc_client.go    # Thin client wrapper
+contracts/definitions/foosvc/
+├── go.mod            (zero deps)
+├── api.go            (interface)
+├── dto.go            (request/response types)
+├── errors.go         (public error sentinels)
+└── inproc_client.go  (wraps any impl behind the interface)
 ```
 
-**Note:** InprocServer is NOT in the contract definition. It lives in `services/serviceasvc/internal/adapters/inbound/contracts/inproc_server.go` as an inbound adapter.
+## go.mod
 
----
+```
+module github.com/example/mmw-contracts/definitions/foosvc
 
-## Contract Definition Files
+go 1.23
+```
 
-### go.mod
-
-`contracts/definitions/serviceasvc/go.mod`:
+## api.go skeleton
 
 ```go
-module github.com/example/service-manager/contracts/definitions/serviceasvc
+package foosvc
 
-go 1.22
+import "context"
 
-// No dependencies - pure interfaces and DTOs
-```
-
-`contracts/definitions/serviceasvc/api.go`:
-
-```go
-package serviceasvc
-
-import (
-    "context"
-    "time"
-)
-
-// ServiceAService is the public API for Service A.
-// Any service can import and use this interface.
-//
-// Implementations (live in service, NOT in contract definition):
-//   - InprocServer in services/serviceasvc/internal/adapters/inbound/contracts/
-//   - Connect handler in services/serviceasvc/internal/adapters/inbound/connect/
-type ServiceAService interface {
-    GetServiceA(ctx context.Context, id string) (*ServiceADTO, error)
-    ListServiceAs(ctx context.Context, req ListServiceAsRequest) (*ListServiceAsResponse, error)
-    CreateServiceA(ctx context.Context, req CreateServiceARequest) (*ServiceADTO, error)
-    UpdateServiceA(ctx context.Context, req UpdateServiceARequest) (*ServiceADTO, error)
+type FooService interface {
+    // Add one method per use case exposed to other modules.
 }
 ```
 
-**File: `contracts/definitions/serviceasvc/dto.go`**
+## inproc_client.go skeleton
 
 ```go
-package serviceasvc
+package foosvc
 
-import "time"
+import "context"
 
-// ServiceADTO is the public representation of a Service A entity.
-// This decouples the contract definition from internal domain models.
-type ServiceADTO struct {
-    ID        string
-    Name      string
-    Bio       string
-    Website   string
-    CreatedAt time.Time
-    UpdatedAt time.Time
+type InprocClient struct{ impl FooService }
+
+func NewInprocClient(impl FooService) *InprocClient {
+    return &InprocClient{impl: impl}
 }
 
-// Request/Response types
-type ListServiceAsRequest struct {
-    PageSize  int
-    PageToken string
-}
-
-type ListServiceAsResponse struct {
-    ServiceAs     []*ServiceADTO
-    NextPageToken string
-}
-
-type CreateServiceARequest struct {
-    Name    string
-    Bio     string
-    Website string
-}
-
-type UpdateServiceARequest struct {
-    ID        string
-    Name      string
-    Bio       string
-    Website   string
-    CreatedAt time.Time
-    UpdatedAt time.Time
-}
+// Delegate every method to impl.
+// Example:
+// func (c *InprocClient) DoThing(ctx context.Context, req DoThingRequest) error {
+//     return c.impl.DoThing(ctx, req)
+// }
 ```
 
-`contracts/definitions/serviceasvc/errors.go`:
+## Rule: The concrete *Module must satisfy FooService
+
+In `modules/foosvc/foosvc.go`, implement each interface method as a public
+method on `*Module`. In `cmd/mmw/main.go`, add a compile-time check:
 
 ```go
-package serviceasvc
-
-import "errors"
-
-// Public errors that callers can check
-var (
-    ErrServiceANotFound   = errors.New("service a entity not found")
-    ErrInvalidServiceAName = errors.New("invalid service a name")
-    ErrDuplicateServiceA  = errors.New("service a already exists")
-)
+// This line will fail to compile if *foosvc.Module doesn't satisfy FooService.
+var _ deffoosvc.FooService = (*foosvc.Module)(nil)
 ```

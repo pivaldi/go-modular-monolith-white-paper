@@ -1,258 +1,122 @@
-# Complete Contract Implementation: Service A
+# Complete Contract Definition: foosvc
 
-This document shows the complete contract-based architecture with clear separation between the public contract (contract definition) and the implementation (service adapter).
+A worked example of all four files in `contracts/definitions/foosvc/`.
 
-## Part 1: Contract Definition (Public Contract)
-
-**Location:** `contracts/definitions/serviceasvc/`
-
-The contract definition contains ONLY the public API: interfaces, DTOs, errors, and the thin client wrapper. It has **zero dependencies** - no `require` statements in go.mod, no imports of `internal/` packages.
-
-### inproc_client.go
+## go.mod
 
 ```go
-// contracts/definitions/serviceasvc/inproc_client.go
-package serviceasvc
+module github.com/example/mmw-contracts/definitions/foosvc
+
+go 1.23
+// No require block — zero dependencies by design.
+```
+
+## api.go
+
+```go
+package foosvc
 
 import "context"
 
-// InprocClient implements ServiceAService by calling any ServiceAService implementation.
-// It depends on the INTERFACE, not a concrete implementation.
-//
-// Performance: Direct function call - <1μs latency, zero serialization overhead.
-type InprocClient struct {
-    server ServiceAService  // Interface reference (not *InprocServer!)
-}
-
-// NewInprocClient creates a new in-process client.
-// Accepts any implementation of the ServiceAService interface.
-func NewInprocClient(server ServiceAService) *InprocClient {
-    return &InprocClient{server: server}
-}
-
-func (c *InprocClient) GetServiceA(ctx context.Context, id string) (*ServiceADTO, error) {
-    // Direct function call via interface - no network, no serialization
-    return c.server.GetServiceA(ctx, id)
-}
-
-func (c *InprocClient) CreateServiceA(ctx context.Context, req CreateServiceARequest) (*ServiceADTO, error) {
-    return c.server.CreateServiceA(ctx, req)
-}
-
-func (c *InprocClient) ListServiceAs(ctx context.Context, req ListServiceAsRequest) (*ListServiceAsResponse, error) {
-    return c.server.ListServiceAs(ctx, req)
-}
-
-func (c *InprocClient) UpdateServiceA(ctx context.Context, req UpdateServiceARequest) (*ServiceADTO, error) {
-    return c.server.UpdateServiceA(ctx, req)
+type FooService interface {
+    CreateFoo(ctx context.Context, req CreateFooRequest) (*FooResponse, error)
+    GetFoo(ctx context.Context, req GetFooRequest) (*FooResponse, error)
+    CompleteFoo(ctx context.Context, req CompleteFooRequest) error
+    DeleteFoo(ctx context.Context, req DeleteFooRequest) error
+    ListFoos(ctx context.Context, req ListFoosRequest) ([]*FooResponse, error)
 }
 ```
 
-**Key Points:**
-- InprocClient holds `ServiceAService` interface, not `*InprocServer` concrete type
-- Accepts ANY implementation of the interface
-- Enables loose coupling and testability
-- Consumer never knows about the concrete implementation
-
----
-
-## Part 2: Service Adapter (Implementation)
-
-**Location:** `services/serviceasvc/internal/adapters/inbound/contracts/`
-
-InprocServer is an **inbound adapter** that implements the contract interface. It lives in the service's internal adapters because:
-- It wraps the service's internal application layer
-- It translates between contract DTOs and internal types
-- It maps domain errors to contract errors
-- Like all adapters, it belongs to the service that implements it
-
-### inproc_server.go
+## dto.go
 
 ```go
-// services/serviceasvc/internal/adapters/inbound/contracts/inproc_server.go
-package contracts
+package foosvc
 
-import (
-    "context"
-    "errors"
+type CreateFooRequest   struct{ Title, Priority, OwnerID string }
+type GetFooRequest      struct{ ID, OwnerID string }
+type CompleteFooRequest struct{ ID, OwnerID string }
+type DeleteFooRequest   struct{ ID, OwnerID string }
+type ListFoosRequest    struct{ OwnerID string }
 
-    // Import contract interface (public API)
-    "github.com/example/service-manager/contracts/definitions/serviceasvc"
-
-    // CAN import service internals - same Go module!
-    "github.com/example/service-manager/services/serviceasvc/internal/application/command"
-    "github.com/example/service-manager/services/serviceasvc/internal/application/query"
-    "github.com/example/service-manager/services/serviceasvc/internal/domain/servicea"
-)
-
-// InprocServer is an inbound adapter that implements the serviceasvc.ServiceAService interface.
-// It wraps the service's internal application layer and exposes it via the contract API.
-type InprocServer struct {
-    getServiceAQuery   *query.GetServiceAQuery
-    listServiceAsQuery *query.ListServiceAsQuery
-    createServiceACmd  *command.CreateServiceACommand
-    updateServiceACmd  *command.UpdateServiceACommand
-}
-
-// NewInprocServer creates an InprocServer and returns it as the contract interface type.
-// This enables loose coupling - callers depend on the interface, not the concrete type.
-func NewInprocServer(
-    getServiceAQuery *query.GetServiceAQuery,
-    listServiceAsQuery *query.ListServiceAsQuery,
-    createServiceACmd *command.CreateServiceACommand,
-    updateServiceACmd *command.UpdateServiceACommand,
-) serviceasvc.ServiceAService {
-    return &InprocServer{
-        getServiceAQuery:   getServiceAQuery,
-        listServiceAsQuery: listServiceAsQuery,
-        createServiceACmd:  createServiceACmd,
-        updateServiceACmd:  updateServiceACmd,
-    }
-}
-
-func (s *InprocServer) GetServiceA(ctx context.Context, id string) (*serviceasvc.ServiceADTO, error) {
-    // Call internal application layer directly
-    result, err := s.getServiceAQuery.Execute(ctx, id)
-    if err != nil {
-        // Translate domain errors to contract errors
-        if errors.Is(err, servicea.ErrServiceANotFound) {
-            return nil, serviceasvc.ErrServiceANotFound
-        }
-        return nil, err
-    }
-
-    // Map internal DTO to contract DTO
-    return &serviceasvc.ServiceADTO{
-        ID:        result.ID,
-        Name:      result.Name,
-        Bio:       result.Bio,
-        Website:   result.Website,
-        AvatarURL: result.AvatarURL,
-        CreatedAt: result.CreatedAt,
-        UpdatedAt: result.UpdatedAt,
-    }, nil
-}
-
-func (s *InprocServer) CreateServiceA(ctx context.Context, req serviceasvc.CreateServiceARequest) (*serviceasvc.ServiceADTO, error) {
-    input := command.CreateServiceAInput{
-        Name:    req.Name,
-        Bio:     req.Bio,
-        Website: req.Website,
-    }
-
-    result, err := s.createServiceACmd.Execute(ctx, input)
-    if err != nil {
-        // Translate domain errors to contract errors
-        if errors.Is(err, servicea.ErrInvalidName) {
-            return nil, serviceasvc.ErrInvalidServiceAName
-        }
-        if errors.Is(err, servicea.ErrDuplicateServiceA) {
-            return nil, serviceasvc.ErrDuplicateServiceA
-        }
-        return nil, err
-    }
-
-    return &serviceasvc.ServiceADTO{
-        ID:        result.ID,
-        Name:      result.Name,
-        Bio:       result.Bio,
-        Website:   result.Website,
-        CreatedAt: result.CreatedAt,
-        UpdatedAt: result.UpdatedAt,
-    }, nil
-}
-
-func (s *InprocServer) ListServiceAs(ctx context.Context, req serviceasvc.ListServiceAsRequest) (*serviceasvc.ListServiceAsResponse, error) {
-    input := query.ListServiceAsInput{
-        PageSize:  req.PageSize,
-        PageToken: req.PageToken,
-    }
-
-    result, err := s.listServiceAsQuery.Execute(ctx, input)
-    if err != nil {
-        return nil, err
-    }
-
-    // Map results
-    var serviceAs []*serviceasvc.ServiceADTO
-    for _, a := range result.ServiceAs {
-        serviceAs = append(serviceAs, &serviceasvc.ServiceADTO{
-            ID:        a.ID,
-            Name:      a.Name,
-            Bio:       a.Bio,
-            Website:   a.Website,
-            AvatarURL: a.AvatarURL,
-            CreatedAt: a.CreatedAt,
-            UpdatedAt: a.UpdatedAt,
-        })
-    }
-
-    return &serviceasvc.ListServiceAsResponse{
-        ServiceAs:     serviceAs,
-        NextPageToken: result.NextPageToken,
-    }, nil
-}
-
-func (s *InprocServer) UpdateServiceA(ctx context.Context, req serviceasvc.UpdateServiceARequest) (*serviceasvc.ServiceADTO, error) {
-    input := command.UpdateServiceAInput{
-        ID:      req.ID,
-        Name:    req.Name,
-        Bio:     req.Bio,
-        Website: req.Website,
-    }
-
-    result, err := s.updateServiceACmd.Execute(ctx, input)
-    if err != nil {
-        if errors.Is(err, servicea.ErrServiceANotFound) {
-            return nil, serviceasvc.ErrServiceANotFound
-        }
-        return nil, err
-    }
-
-    return &serviceasvc.ServiceADTO{
-        ID:        result.ID,
-        Name:      result.Name,
-        Bio:       result.Bio,
-        Website:   result.Website,
-        UpdatedAt: result.UpdatedAt,
-    }, nil
+type FooResponse struct {
+    ID, Title, Status, Priority, OwnerID string
 }
 ```
 
----
+## errors.go
 
-## Key Architectural Insights
+```go
+package foosvc
 
-### 1. InprocServer is an Adapter
-InprocServer lives in `services/serviceasvc/internal/adapters/inbound/contracts/`, not in the contract definition. This is intentional:
-- It's an **inbound adapter** that implements the contract interface
-- It wraps the service's internal application layer
-- It belongs to the service, just like HTTP or Connect adapters
+import "errors"
 
-### 2. Contract Definition Remains Truly Dependency-Free
-The contract definition (`contracts/definitions/serviceasvc/`) contains ONLY:
-- Interfaces (api.go)
-- DTOs (dto.go)
-- Errors (errors.go)
-- InprocClient (thin wrapper)
+var (
+    ErrNotFound   = errors.New("foosvc: foo not found")
+    ErrForbidden  = errors.New("foosvc: access denied")
+    ErrBadRequest = errors.New("foosvc: invalid request")
+)
+```
 
-It has **zero dependencies** - literally no `require` statements in go.mod, no imports of `internal/` packages.
+## inproc_client.go
 
-### 3. Interface-Based Coupling
-InprocClient holds a `ServiceAService` interface reference, not `*InprocServer` concrete type. This enables:
-- Loose coupling between consumer and provider
-- Easy testing (mock the interface)
-- Swappable implementations (in-process vs network)
+```go
+package foosvc
 
-### 4. Factory Returns Interface
-`NewInprocServer()` returns `serviceasvc.ServiceAService` interface type, not `*InprocServer`. This ensures:
-- Callers depend on the interface, not the concrete type
-- Implementation details are hidden
-- Easier to refactor implementation without breaking consumers
+import "context"
 
-### 5. Clear Separation of Concerns
-- **Contract Definition**: Public contract definition (what can be called)
-- **Service Adapter**: Implementation details (how it's implemented)
-- **Consumer**: Only knows about the contract interface
+type InprocClient struct{ impl FooService }
 
-This is the essence of true module independence: contract definitions define contracts, services provide implementations.
+func NewInprocClient(impl FooService) *InprocClient {
+    return &InprocClient{impl: impl}
+}
+
+func (c *InprocClient) CreateFoo(ctx context.Context, req CreateFooRequest) (*FooResponse, error) {
+    return c.impl.CreateFoo(ctx, req)
+}
+func (c *InprocClient) GetFoo(ctx context.Context, req GetFooRequest) (*FooResponse, error) {
+    return c.impl.GetFoo(ctx, req)
+}
+func (c *InprocClient) CompleteFoo(ctx context.Context, req CompleteFooRequest) error {
+    return c.impl.CompleteFoo(ctx, req)
+}
+func (c *InprocClient) DeleteFoo(ctx context.Context, req DeleteFooRequest) error {
+    return c.impl.DeleteFoo(ctx, req)
+}
+func (c *InprocClient) ListFoos(ctx context.Context, req ListFoosRequest) ([]*FooResponse, error) {
+    return c.impl.ListFoos(ctx, req)
+}
+```
+
+## How barsvc Uses This Contract
+
+In `modules/barsvc/go.mod`:
+
+```go
+module github.com/example/mmw-barsvc
+
+go 1.23
+
+require github.com/example/mmw-contracts/definitions/foosvc v0.0.0
+```
+
+In `modules/barsvc/internal/application/ports/foo.go`:
+
+```go
+package ports
+
+import deffoosvc "github.com/example/mmw-contracts/definitions/foosvc"
+
+// FooServicePort aliases the contract interface for use in the application layer.
+type FooServicePort = deffoosvc.FooService
+```
+
+In `cmd/mmw/main.go`:
+
+```go
+fooModule, _ := foosvc.New(foosvc.Infrastructure{...})
+
+barModule, _ := barsvc.New(barsvc.Infrastructure{
+    FooSvc: deffoosvc.NewInprocClient(fooModule),
+    ...
+})
+```

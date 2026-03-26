@@ -57,7 +57,7 @@
 
 2. **Create contract definition modules** (1-2 weeks)
    - Extract in-process interfaces
-   - Implement InprocServer/Client
+   - Implement InprocClient
    - Keep Connect handlers
 
 3. **Switch to in-process** (1 week per service)

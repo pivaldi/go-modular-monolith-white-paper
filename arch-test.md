@@ -24,9 +24,9 @@ type ArchRule struct {
 func main() {
     rules := []ArchRule{
         {
-            Name:        "service-isolation",
-            Description: "Services must not import other services' internal packages",
-            Check:       checkServiceIsolation,
+            Name:        "module-isolation",
+            Description: "Modules must not import other modules' internal packages",
+            Check:       checkModuleIsolation,
         },
         {
             Name:        "domain-purity",
@@ -78,22 +78,22 @@ func main() {
     fmt.Println("✓ All architecture checks passed")
 }
 
-// checkServiceIsolation ensures services don't import each other's internals
-func checkServiceIsolation() error {
-    servicesDir := "services"
-    services, err := os.ReadDir(servicesDir)
+// checkModuleIsolation ensures modules don't import each other's internals
+func checkModuleIsolation() error {
+    modulesDir := "modules"
+    modules, err := os.ReadDir(modulesDir)
     if err != nil {
         return err
     }
 
-    for _, service := range services {
-        if !service.IsDir() {
+    for _, module := range modules {
+        if !module.IsDir() {
             continue
         }
 
-        servicePath := filepath.Join(servicesDir, service.Name())
+        modulePath := filepath.Join(modulesDir, module.Name())
 
-        err := filepath.Walk(servicePath, func(path string, info os.FileInfo, err error) error {
+        err := filepath.Walk(modulePath, func(path string, info os.FileInfo, err error) error {
             if err != nil {
                 return err
             }
@@ -111,16 +111,16 @@ func checkServiceIsolation() error {
             for _, imp := range f.Imports {
                 importPath := strings.Trim(imp.Path.Value, "\"")
 
-                // Check if importing another service's internal
-                for _, otherService := range services {
-                    if otherService.Name() == service.Name() {
+                // Check if importing another module's internal
+                for _, otherModule := range modules {
+                    if otherModule.Name() == module.Name() {
                         continue
                     }
 
-                    forbiddenImport := fmt.Sprintf("services/%s/internal", otherService.Name())
+                    forbiddenImport := fmt.Sprintf("modules/%s/internal", otherModule.Name())
                     if strings.Contains(importPath, forbiddenImport) {
                         return fmt.Errorf(
-                            "%s imports %s (cross-service internal import)",
+                            "%s imports %s (cross-module internal import)",
                             path, importPath,
                         )
                     }
@@ -151,7 +151,7 @@ func checkDomainPurity() error {
         "connectrpc.com",
     }
 
-    return filepath.Walk("services", func(path string, info os.FileInfo, err error) error {
+    return filepath.Walk("modules", func(path string, info os.FileInfo, err error) error {
         if err != nil {
             return err
         }
@@ -186,7 +186,7 @@ func checkDomainPurity() error {
 
 // checkAdapterDirection ensures adapters implement ports, not vice versa
 func checkAdapterDirection() error {
-    return filepath.Walk("services", func(path string, info os.FileInfo, err error) error {
+    return filepath.Walk("modules", func(path string, info os.FileInfo, err error) error {
         if err != nil {
             return err
         }
@@ -284,8 +284,8 @@ func checkGoModPurity(contractDefPath, contractDefName string) error {
                         "\n"+
                         "Contract definitions must have ZERO dependencies (no require statements).\n"+
                         "\n"+
-                        "If you see service internals here, InprocServer is in the wrong location.\n"+
-                        "Move InprocServer to: services/%s/internal/adapters/inbound/contracts/\n"+
+                        "If you see module internals here, the module itself (not the contract) should satisfy the interface.\n"+
+                        "The *Module type lives in: modules/%s/ (the module root file, e.g. foosvc.go)\n"+
                         "\n"+
                         "Contract definition modules should contain ONLY:\n"+
                         "  - Interfaces (api.go)\n"+
@@ -329,8 +329,8 @@ func checkNoInternalImports(contractDefPath, contractDefName string) error {
                     "\n"+
                     "Contract definition modules must NEVER import internal/ packages from any service.\n"+
                     "\n"+
-                    "If this is InprocServer, it belongs in the service's internal adapters:\n"+
-                    "  Move to: services/%s/internal/adapters/inbound/contracts/inproc_server.go\n"+
+                    "The *Module type satisfies the contract interface directly — no separate impl needed.\n"+
+                    "  The module root file lives at: modules/%s/<name>.go\n"+
                     "\n"+
                     "Contract definition modules can only import:\n"+
                     "  - Standard library\n"+
@@ -396,7 +396,7 @@ func checkModuleDependencies() error {
 
             if inRequire || strings.HasPrefix(line, "require ") {
                 parts := strings.Fields(line)
-                if len(parts) > 0 && strings.Contains(parts[0], "service-manager") {
+                if len(parts) > 0 && strings.Contains(parts[0], "mmw") {
                     deps = append(deps, parts[0])
                 }
             }
@@ -419,8 +419,8 @@ func checkModuleDependencies() error {
     // - Circular module deps prevent independent evolution
     //
     // Example violation:
-    //   services/servicebsvc/go.mod: require contracts/definitions/serviceasvc ✓ OK
-    //   contracts/definitions/serviceasvc/go.mod: require services/servicebsvc ✗ CYCLE!
+    //   modules/barsvc/go.mod: require contracts/definitions/foosvc ✓ OK
+    //   contracts/definitions/foosvc/go.mod: require modules/barsvc ✗ CYCLE!
     for module := range graph {
         visited := make(map[string]bool)
         if hasCycle(module, graph, visited, make(map[string]bool)) {
@@ -466,7 +466,7 @@ func checkLayerDependencies() error {
         "/internal/infra/":       {"/internal/adapters/", "/internal/application/", "/internal/domain/"},
     }
 
-    return filepath.Walk("services", func(path string, info os.FileInfo, err error) error {
+    return filepath.Walk("modules", func(path string, info os.FileInfo, err error) error {
         if err != nil {
             return err
         }
@@ -528,6 +528,19 @@ func checkLayerDependencies() error {
 }
 ```
 
+## Compile-Time Interface Assertion
+
+The first-line architecture test is a compile-time assertion in every module:
+
+```go
+// modules/foosvc/foosvc.go
+var _ oglcore.Module = (*Module)(nil)
+```
+
+If `Start(ctx context.Context) error` is missing or has the wrong signature,
+the build fails immediately. This catches broken module implementations before
+any runtime test runs.
+
 ## Running Architecture Tests
 
 ```bash
@@ -554,13 +567,13 @@ Example CI failure message:
 ```
 ✗ Architecture validation failed
 
-Checking: service-isolation
-  ✗ FAILED: services/servicebsvc/internal/adapters/outbound/helper.go
-    imports services/serviceasvc/internal/domain/entitya
-    (cross-service internal import)
+Checking: module-isolation
+  ✗ FAILED: modules/barsvc/internal/adapters/outbound/helper.go
+    imports modules/foosvc/internal/domain/entitya
+    (cross-module internal import)
 
-Fix: Remove direct import of serviceasvc internals.
-      Use contracts/definitions/serviceasvc instead.
+Fix: Remove direct import of foosvc internals.
+      Use contracts/definitions/foosvc instead.
 ```
 
 ## Additional Validation Rules

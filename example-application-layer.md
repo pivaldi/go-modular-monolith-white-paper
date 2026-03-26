@@ -1,132 +1,246 @@
-`services/servicebsvc/internal/application/command/login.go`:
+# Application Layer Examples
+
+The application layer orchestrates use cases. It has no business logic
+(that lives in the domain) and no infrastructure knowledge (that lives
+in adapters). It depends only on domain types and port interfaces.
+
+## Ports (Secondary Interfaces)
+
+Ports are interfaces the application layer defines. Adapters implement them.
 
 ```go
+// modules/foosvc/internal/application/ports/repository.go
+package ports
+
+import (
+    "context"
+    "github.com/example/mmw-foosvc/internal/domain"
+)
+
+type FooRepository interface {
+    Save(ctx context.Context, foo *domain.Foo) error
+    FindByID(ctx context.Context, id domain.FooID) (*domain.Foo, error)
+    FindAll(ctx context.Context, ownerID string) ([]*domain.Foo, error)
+    Delete(ctx context.Context, id domain.FooID) error
+    Health(ctx context.Context) error
+}
+
+// modules/foosvc/internal/application/ports/events.go
+type EventDispatcher interface {
+    Dispatch(ctx context.Context, events []domain.DomainEvent) error
+}
+
+// modules/foosvc/internal/application/ports/uow.go
+// UnitOfWork wraps a command in a database transaction.
+type UnitOfWork interface {
+    Do(ctx context.Context, fn func(ctx context.Context) error) error
+}
+```
+
+## Application Service Facade
+
+The `FooApplicationService` is a thin facade that delegates to
+command and query handlers. It is the only type the inbound adapter
+(Connect handler) depends on.
+
+```go
+// modules/foosvc/internal/application/service.go
+package application
+
+import (
+    "context"
+    "github.com/example/mmw-foosvc/internal/application/command"
+    "github.com/example/mmw-foosvc/internal/application/dto"
+    "github.com/example/mmw-foosvc/internal/application/ports"
+    "github.com/example/mmw-foosvc/internal/application/query"
+)
+
+type FooApplicationService struct {
+    createHandler   *command.CreateFooHandler
+    completeHandler *command.CompleteFooHandler
+    deleteHandler   *command.DeleteFooHandler
+    getFooHandler   *query.GetFooHandler
+    listHandler     *query.ListFoosHandler
+    repo            ports.FooRepository
+}
+
+func NewFooApplicationService(
+    repo ports.FooRepository,
+    uow ports.UnitOfWork,
+    dispatcher ports.EventDispatcher,
+) *FooApplicationService {
+    return &FooApplicationService{
+        createHandler:   command.NewCreateFooHandler(repo, uow, dispatcher),
+        completeHandler: command.NewCompleteFooHandler(repo, uow, dispatcher),
+        deleteHandler:   command.NewDeleteFooHandler(repo, uow),
+        getFooHandler:   query.NewGetFooHandler(repo),
+        listHandler:     query.NewListFoosHandler(repo),
+        repo:            repo,
+    }
+}
+
+func (s *FooApplicationService) CreateFoo(ctx context.Context, cmd dto.CreateFooCommand) (*dto.FooDTO, error) {
+    return s.createHandler.Handle(ctx, cmd)
+}
+
+func (s *FooApplicationService) CompleteFoo(ctx context.Context, cmd dto.CompleteFooCommand) error {
+    return s.completeHandler.Handle(ctx, cmd)
+}
+
+func (s *FooApplicationService) GetFoo(ctx context.Context, q dto.GetFooQuery) (*dto.FooDTO, error) {
+    return s.getFooHandler.Handle(ctx, q)
+}
+
+func (s *FooApplicationService) ListFoos(ctx context.Context, q dto.ListFoosQuery) ([]*dto.FooDTO, error) {
+    return s.listHandler.Handle(ctx, q)
+}
+
+func (s *FooApplicationService) Health(ctx context.Context) error {
+    return s.repo.Health(ctx)
+}
+```
+
+## Command Handler (Write Side)
+
+Command handlers perform writes. They use the Unit of Work to wrap the
+operation in a transaction, then dispatch domain events.
+
+```go
+// modules/foosvc/internal/application/command/create_foo.go
 package command
 
 import (
     "context"
-    "time"
+    "fmt"
 
-    "github.com/example/service-manager/services/servicebsvc/internal/application/ports"
-    "github.com/example/service-manager/services/servicebsvc/internal/domain/session"
-    "github.com/example/service-manager/services/servicebsvc/internal/domain/user"
+    "github.com/example/mmw-foosvc/internal/application/dto"
+    "github.com/example/mmw-foosvc/internal/application/ports"
+    "github.com/example/mmw-foosvc/internal/domain"
 )
 
-// LoginCommand handles user login.
-type LoginCommand struct {
-    userRepo      user.Repository
-    sessionRepo   session.Repository
-    serviceaClient  ports.ServiceAClient
-    logger        ports.Logger
+type CreateFooHandler struct {
+    repo       ports.FooRepository
+    uow        ports.UnitOfWork
+    dispatcher ports.EventDispatcher
 }
 
-func NewLoginCommand(
-    userRepo user.Repository,
-    sessionRepo session.Repository,
-    serviceaClient ports.ServiceAClient,
-    logger ports.Logger,
-) *LoginCommand {
-    return &LoginCommand{
-        userRepo:     userRepo,
-        sessionRepo:  sessionRepo,
-        serviceaClient: serviceaClient,
-        logger:       logger,
-    }
+func NewCreateFooHandler(repo ports.FooRepository, uow ports.UnitOfWork, dispatcher ports.EventDispatcher) *CreateFooHandler {
+    return &CreateFooHandler{repo: repo, uow: uow, dispatcher: dispatcher}
 }
 
-type LoginInput struct {
-    Email    string
-    Password string
-}
-
-type LoginOutput struct {
-    Token      string
-    UserID     string
-    AuthorName string
-    ExpiresAt  time.Time
-}
-
-func (c *LoginCommand) Execute(ctx context.Context, input LoginInput) (*LoginOutput, error) {
-    // 1. Parse and validate email
-    email, err := user.NewEmail(input.Email)
+func (h *CreateFooHandler) Handle(ctx context.Context, cmd dto.CreateFooCommand) (*dto.FooDTO, error) {
+    title, err := domain.NewFooTitle(cmd.Title)
     if err != nil {
-        return nil, ErrInvalidCredentials
+        return nil, fmt.Errorf("create foo: %w", err)
     }
 
-    // 2. Find user by email
-    u, err := c.userRepo.FindByEmail(ctx, email)
+    foo, err := domain.NewFoo(title, domain.Priority(cmd.Priority), cmd.OwnerID)
     if err != nil {
-        if errors.Is(err, user.ErrUserNotFound) {
-            return nil, ErrInvalidCredentials
+        return nil, fmt.Errorf("create foo: %w", err)
+    }
+
+    if err := h.uow.Do(ctx, func(ctx context.Context) error {
+        if err := h.repo.Save(ctx, foo); err != nil {
+            return err
         }
+        return h.dispatcher.Dispatch(ctx, foo.PopEvents())
+    }); err != nil {
         return nil, err
     }
 
-    // 3. Verify password (domain logic)
-    if !u.VerifyPassword(input.Password) {
-        c.logger.Warn(ctx, "failed login attempt", ports.LogField{Key: "user_id", Value: u.ID()})
-        return nil, ErrInvalidCredentials
-    }
-
-    // 4. Create session (domain logic)
-    sess := session.New(u.ID(), 24*time.Hour)
-
-    // 5. Enrich with Service A information (optional, graceful degradation)
-    var authorName string
-    authorInfo, err := c.serviceaClient.GetServiceA(ctx, u.ID())
-    if err != nil {
-        c.logger.Warn(ctx, "failed to fetch Service A info", ports.LogField{Key: "error", Value: err})
-        // Continue without Service A info
-    } else {
-        authorName = authorInfo.Name
-    }
-
-    // 6. Save session
-    if err := c.sessionRepo.Save(ctx, sess); err != nil {
-        return nil, err
-    }
-
-    // 7. Log success
-    c.logger.Info(ctx, "user logged in",
-        ports.LogField{Key: "user_id", Value: u.ID()},
-        ports.LogField{Key: "session_id", Value: sess.ID()},
-    )
-
-    // 8. Return result
-    return &LoginOutput{
-        Token:      sess.Token().String(),
-        UserID:     u.ID(),
-        AuthorName: authorName,
-        ExpiresAt:  sess.ExpiresAt(),
-    }, nil
+    return dto.FooDTOFromDomain(foo), nil
 }
 ```
 
-`services/servicebsvc/internal/application/ports/author_client.go`:
+## Query Handler (Read Side)
+
+Query handlers perform reads only — no writes, no events, no Unit of Work.
 
 ```go
-package ports
+// modules/foosvc/internal/application/query/get_foo.go
+package query
 
-import "context"
+import (
+    "context"
+    "fmt"
 
-// ServiceAClient is an outbound port for fetching Service A information.
-// This interface is owned by the application layer.
-// It will be implemented by an adapter (e.g., InprocServiceAClient, ConnectServiceAClient).
-type ServiceAClient interface {
-    GetServiceA(ctx context.Context, authorID string) (*ServiceAInfo, error)
-}
-
-// ServiceAInfo is an application DTO for author data.
-type ServiceAInfo struct {
-    ID        string
-    Name      string
-    Bio       string
-    AvatarURL string
-}
-
-// Application-level errors
-var (
-    ErrAuthorNotFound    = errors.New("author not found")
-    ErrAuthorServiceDown = errors.New("author service unavailable")
+    "github.com/example/mmw-foosvc/internal/application/dto"
+    "github.com/example/mmw-foosvc/internal/application/ports"
+    "github.com/example/mmw-foosvc/internal/domain"
 )
+
+type GetFooHandler struct {
+    repo ports.FooRepository
+}
+
+func NewGetFooHandler(repo ports.FooRepository) *GetFooHandler {
+    return &GetFooHandler{repo: repo}
+}
+
+func (h *GetFooHandler) Handle(ctx context.Context, q dto.GetFooQuery) (*dto.FooDTO, error) {
+    id, err := domain.FooIDFromString(q.ID)
+    if err != nil {
+        return nil, fmt.Errorf("get foo: %w", err)
+    }
+
+    foo, err := h.repo.FindByID(ctx, id)
+    if err != nil {
+        return nil, fmt.Errorf("get foo: %w", err)
+    }
+
+    return dto.FooDTOFromDomain(foo), nil
+}
+```
+
+## DTOs
+
+DTOs are plain structs with no domain logic. They cross the boundary
+between the inbound adapter and the application layer.
+
+```go
+// modules/foosvc/internal/application/dto/foo_dto.go
+package dto
+
+import (
+    "github.com/google/uuid"
+    "github.com/example/mmw-foosvc/internal/domain"
+)
+
+type CreateFooCommand struct {
+    Title    string
+    Priority string
+    OwnerID  uuid.UUID
+}
+
+type CompleteFooCommand struct {
+    ID      string
+    OwnerID uuid.UUID
+}
+
+type GetFooQuery struct {
+    ID      string
+    OwnerID uuid.UUID
+}
+
+type ListFoosQuery struct {
+    OwnerID uuid.UUID
+}
+
+type FooDTO struct {
+    ID       string
+    Title    string
+    Status   string
+    Priority string
+    OwnerID  string
+}
+
+func FooDTOFromDomain(f *domain.Foo) *FooDTO {
+    return &FooDTO{
+        ID:       f.ID().String(),
+        Title:    f.Title().String(),
+        Status:   string(f.Status()),
+        Priority: string(f.Priority()),
+        OwnerID:  f.OwnerID().String(),
+    }
+}
 ```
