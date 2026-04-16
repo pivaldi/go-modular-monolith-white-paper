@@ -4,59 +4,59 @@ Even with a well-designed architecture, common anti-patterns can undermine its b
 
 ## Contract Definition Bloat
 
-**Problem:** Contract definition modules accumulate business logic, validation, or utilities instead of staying pure interfaces.
+**Problem:** Contract packages accumulate business logic, validation, or utilities instead of staying as pure generated interfaces.
 
 **Symptoms:**
 - Contract DTOs contain validation logic
-- Helper functions performing calculations in contract definition package
-- Contract definition modules importing external dependencies (databases, HTTP clients)
-- Multiple services depending on contract definition utilities for shared behavior
+- Helper functions performing calculations in contract package
+- Contract packages importing external dependencies (databases, HTTP clients)
+- Multiple services depending on contract utilities for shared behavior
 
 **Example:**
 ```go
-// ✗ BAD: Business logic in contract definition
-package foomod
+// ✗ BAD: Business logic in contract package
+package todo
 
-func (dto *ServiceADTO) IsPopular() bool {
-    return dto.FollowerCount > 10000  // Business rule in contract definition!
+func (dto *TaskDTO) IsOverdue() bool {
+    return dto.DueDate.Before(time.Now())  // Business rule in contract!
 }
 
-func CalculateRating(articles, followers int) float64 {
-    return float64(articles) * 0.3 + float64(followers) * 0.7  // Shared utility
+func CalculateCompletionRate(total, done int) float64 {
+    return float64(done) / float64(total)  // Shared utility in contract!
 }
 ```
 
 **Solution:**
-- Keep contract definitions as pure data transfer and interface definitions
-- Move validation to domain layer
-- Duplicate simple utilities rather than sharing through contract definitions
-- If logic is needed in multiple services, it belongs in a shared library, not a contract definition
+- Keep contract packages as pure generated interfaces + event topics + error codes
+- Move validation to the domain layer
+- Duplicate simple utilities rather than sharing through contracts
+- If logic is needed in multiple modules, it belongs in a shared library (`libs/ogl`), not a contract package
 
-**Why it happens:** Teams see contract definitions as "shared" and use them for convenience, creating coupling.
+**Why it happens:** Teams see contracts as "shared" and use them for convenience, creating coupling.
 
 ## Over-Modularization
 
 **Problem:** Creating too many small services or modules too early, before domain boundaries are understood.
 
 **Symptoms:**
-- Services that always deploy together
-- Frequent changes requiring updates to multiple services
+- Modules that always deploy together
+- Frequent changes requiring updates to multiple modules
 - Circular communication patterns (A calls B, B calls A)
-- Services with single responsibilities that could be functions
-- More contract definition modules than services
+- More contract packages than feature modules
+- Single responsibilities that could be methods on an existing aggregate
 
 **Example:**
 ```
 ✗ BAD: Too granular
 modules/
-├── user-creation-svc/      # Just creates users
-├── user-validation-svc/    # Just validates users
-├── user-notification-svc/  # Just sends user emails
-└── user-storage-svc/       # Just stores users
+├── todo-creation/       # Just creates todos
+├── todo-validation/     # Just validates todos
+├── todo-notification/   # Just sends notifications
+└── todo-storage/        # Just stores todos
 
 ✓ GOOD: Cohesive boundary
 modules/
-└── usersvc/                # Manages user lifecycle
+└── todo/                # Manages todo lifecycle
     └── internal/
         ├── domain/
         ├── application/
@@ -64,44 +64,43 @@ modules/
 ```
 
 **Solution:**
-- Start with fewer, larger services based on business capabilities
-- Let service boundaries emerge from understanding the domain
-- Use internal packages for organization within a service
-- Only create a new service when you understand the boundary and have a reason to deploy separately
+- Start with fewer, larger modules based on business capabilities
+- Let module boundaries emerge from understanding the domain
+- Use `internal/` packages for organization within a module
+- Only create a new module when you understand the boundary and have a reason to deploy separately
 
 **Why it happens:** Microservice enthusiasm, misunderstanding of DDD bounded contexts, premature optimization.
 
 ## Premature Service Extraction
 
-**Problem:** Splitting services into separate deployments before understanding operational requirements or communication patterns.
+**Problem:** Splitting modules into separate deployments before understanding operational requirements or communication patterns.
 
 **Symptoms:**
 - Network calls for operations that should be transactional
 - Performance degradation after extraction
 - Distributed transaction complexity
-- Frequent "rollback" discussions to merge services back
 - Teams spending more time on infrastructure than features
 
 **Example:**
 ```go
 // ✗ PROBLEM: Extracted too early, now need distributed transaction
-func CreateArticle(ctx context.Context, req CreateArticleRequest) error {
+func CreateTodo(ctx context.Context, req CreateTodoRequest) error {
     // Network call
-    author, err := authorClient.GetAuthor(ctx, req.AuthorID)
+    user, err := authClient.ValidateUser(ctx, req.UserID)
     if err != nil {
         return err
     }
 
     // Network call
-    article, err := articleClient.CreateArticle(ctx, req)
+    todo, err := todoClient.CreateTodo(ctx, req)
     if err != nil {
-        return err  // Author check succeeded but article failed - inconsistent!
+        return err  // Auth check succeeded but todo failed — inconsistent!
     }
 
     // Network call
-    err = notificationClient.NotifyFollowers(ctx, article.ID)
+    err = notifClient.NotifyCreated(ctx, todo.ID)
     if err != nil {
-        // What now? Rollback article creation?
+        // What now? Rollback todo creation?
     }
 
     return nil
@@ -109,49 +108,48 @@ func CreateArticle(ctx context.Context, req CreateArticleRequest) error {
 ```
 
 **Solution:**
-- Keep services in-process (using contract definitions) until you have a clear reason to separate
+- Keep modules in-process (via contract interfaces + in-process accessors) until you have a clear reason to separate
 - Understand transactional boundaries before extracting
-- Use architecture tests to enforce boundaries without deploying separately
+- Use architecture tests (`mmw check arch`) to enforce boundaries without deploying separately
 - Extract only when you need independent scaling, deployment, or team ownership
 
 **Why it happens:** Pressure to "do microservices," resume-driven development, misunderstanding that boundaries ≠ deployment.
 
-## Contract-Definition-Internal Confusion
+## Contract-vs-Port Confusion
 
-**Problem:** Teams confuse when to use contract interfaces vs. internal application ports.
+**Problem:** Teams confuse when to use external contract interfaces vs. internal application ports.
 
 **Symptoms:**
-- Application layer directly importing contract definition modules instead of using adapters
+- Application layer directly importing contract packages instead of using adapters
 - Port interfaces duplicating contract interfaces exactly
-- Confusion about "which interface to use"
-- Tight coupling to contract DTOs in domain layer
+- Tight coupling to contract DTOs in the domain layer
 
 **Example:**
 ```go
-// ✗ BAD: Application layer directly using contract definition
+// ✗ BAD: Application layer directly using contract package
 package command
 
 import (
-    "github.com/.../contracts/definitions/foomod"  // Wrong layer!
+    defauth "github.com/pivaldi/mmw-contracts/go/application/auth"  // Wrong layer!
 )
 
-type CreateArticleCommand struct {
-    authorService foomod.AuthorService  // Directly coupled to contract definition
+type CreateTodoCommand struct {
+    authSvc defauth.AuthPrivateService  // Directly coupled to contract package
 }
 ```
 
 **Solution:**
-- **Contract definition** = Service-to-service boundary (external API)
-- **Port** = Application-to-adapter boundary (internal API)
-- Application layer only knows about ports, never about contract definitions
-- Adapters implement ports and may use contract definitions internally
+- **Contract package** = Module-to-module boundary (external API, generated from proto)
+- **Port** = Application-to-adapter boundary (internal interface, hand-written)
+- Application layer only knows about ports, never about contract packages
+- Adapters implement ports and may use contract packages internally
 
 **Correct flow:**
 ```
-Application -> Port (owns) -> Adapter (implements) -> Contract definition (uses) -> Other Service
+Application → Port (owns) → Adapter (implements) → Contract package (uses) → Other Module
 ```
 
-**Why it happens:** Misunderstanding hexagonal architecture, treating contract definitions as "just another dependency."
+**Why it happens:** Misunderstanding hexagonal architecture, treating contract packages as "just another dependency."
 
 ## Ignoring the Compiler
 
@@ -161,7 +159,6 @@ Application -> Port (owns) -> Adapter (implements) -> Contract definition (uses)
 - Using reflection to access internal types
 - Build tag hacks to share code
 - Git submodules to work around go.mod restrictions
-- "Helper" packages outside module structure
 - Complaints that "Go modules are too restrictive"
 
 **Example:**
@@ -169,14 +166,14 @@ Application -> Port (owns) -> Adapter (implements) -> Contract definition (uses)
 // ✗ BAD: Using reflection to bypass boundaries
 func GetInternalState(service interface{}) map[string]interface{} {
     val := reflect.ValueOf(service).Elem()
-    // Access unexported fields...
+    // Access unexported fields — defeats the entire purpose of internal/
 }
 ```
 
 **Solution:**
 - If the compiler prevents it, that's the architecture working correctly
 - Redesign the boundary rather than bypassing it
-- Make internal APIs public through contract definition if truly needed
+- Make internal APIs public through the contract package if truly needed
 - Trust that boundaries prevent coupling for good reason
 
 **Why it happens:** Impatience, viewing boundaries as obstacles rather than design constraints.
@@ -186,23 +183,25 @@ func GetInternalState(service interface{}) map[string]interface{} {
 **Problem:** Not implementing or enforcing architectural rules with automated tests.
 
 **Symptoms:**
-- Service boundaries erode over time
-- "Just this once" cross-service imports
+- Module boundaries erode over time
+- "Just this once" cross-module imports through `internal/`
 - Domain layer importing infrastructure "temporarily"
-- Contract definition modules growing dependencies
+- Contract packages growing dependencies
 - Discovered during code review instead of CI
 
 **Solution:**
-- Implement `tools/arch-test` as shown in this white paper
-- Run architecture tests in CI (fail the build on violations)
-- Treat architectural violations like failing tests - must fix immediately
+- Use `mmw check arch` (backed by `mmw/pkg/archtest/`) in CI — fail the build on violations
+- Treat architectural violations like failing tests — must fix immediately
 - Review and update architectural rules as the system evolves
+
+The `mmw check arch` command runs all registered `Validator` implementations
+and reports violations with file and import details. See [arch-test.md](arch-test.md).
 
 **Why it happens:** "It compiles, ship it" mentality, treating architecture as documentation instead of enforceable design.
 
 ## Broken Module Interface
 
-**Symptom:** Build error: `*Module does not implement oglcore.Module`
+**Symptom:** Build error: `*Module does not implement core.Module`
 
 **Cause:** A module's `Start` method has the wrong signature, is missing,
 or is on a value receiver instead of a pointer receiver.
@@ -210,7 +209,7 @@ or is on a value receiver instead of a pointer receiver.
 **Prevention:** The compile-time assertion in every module file:
 
 ```go
-var _ oglcore.Module = (*Module)(nil)
+var _ pfcore.Module = (*Module)(nil)
 ```
 
 This line makes the problem a build error rather than a runtime panic.

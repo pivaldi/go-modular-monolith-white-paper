@@ -6,10 +6,10 @@
 
 1. **Validate** - Check workspace, go.mod files
 2. **Lint** - golangci-lint, buf lint
-3. **Architecture Check** - Enforce boundaries
+3. **Architecture Check** - Enforce boundaries via `mmw check arch`
 4. **Unit Tests** - Fast tests without infrastructure
 5. **Integration Tests** - With databases
-6. **Contract Tests** - Service-to-service
+6. **Contract Tests** - Module-to-module
 7. **Build** - Docker images
 8. **Security Scan** - Gosec, Trivy
 
@@ -29,11 +29,15 @@ jobs:
           go-version: '1.23'
       - uses: bufbuild/buf-setup-action@v1
       - run: go work sync
+        working-directory: poc
       - run: go mod verify
+        working-directory: poc
       - run: buf lint
-        working-directory: contracts
-      - run: buf generate
-        working-directory: contracts
+        working-directory: poc/contracts
+      - run: buf generate --template buf.gen.todo.yaml
+        working-directory: poc/contracts
+      - run: buf generate --template buf.gen.auth.yaml
+        working-directory: poc/contracts
       - run: git diff --exit-code
         name: Verify generated code is up to date
 
@@ -42,7 +46,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-      - run: go run ./tools/arch-test
+      - run: go run ./cmd/mmw-cli check arch
+        working-directory: poc/mmw
 
   test:
     runs-on: ubuntu-latest
@@ -57,22 +62,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
       - run: go test ./... -race -coverprofile=coverage.out
+        working-directory: poc
 ```
 
 ## Architectural Boundary Enforcement
 
-Architecture tests validate that code structure matches intended design. These tests should run in CI and fail the build on violations.
+Architecture tests validate that code structure matches intended design.
+These tests run via `mmw check arch` and should fail the build on violations.
 
-### Architecture Testing Tools
+### Architecture Testing with `mmw check arch`
 
-**1. Custom Architecture Tests (`tools/arch-test/main.go`)**
+The `mmw check arch` CLI command (from `mmw/cmd/mmw-cli/`) runs all registered
+`Validator` implementations against the workspace. Built-in validators check:
 
-A comprehensive validation tool that checks:
-
-**Service Isolation:**
-- Services don't import other service `internal/` packages
-- Services only communicate via contract definitions or network
-- No cross-service imports except through public contracts
+**Module Isolation:**
+- Modules don't import other modules' `internal/` packages
+- Modules only communicate via contract packages or the network
+- No cross-module imports except through `contracts/go/application/{domain}/`
 
 **Layer Purity:**
 - Domain layer has zero infrastructure dependencies
@@ -80,25 +86,14 @@ A comprehensive validation tool that checks:
 - Application layer doesn't import adapters
 - Adapters implement application ports (dependency inversion)
 
-**Module Dependencies:**
-- Contract definition modules have literally ZERO dependencies (no `require` statements in go.mod)
-- Contract definition modules contain ONLY: interfaces, DTOs, errors, and InprocClient (thin wrapper)
-- InprocClient wraps the implementation; it lives in the contract definition module
-- Services depend only on: contract definitions, contracts (optional), and standard libraries
-- No circular dependencies between modules (at go.mod level - compiler already prevents package-level cycles)
-- Dependency graph flows in correct direction: consumer → contract definition → (nothing)
+**Contract Module Purity:**
+- Contract packages depend only on `connectrpc/connect` and `google.golang.org/protobuf`
+- No feature module can be imported by a contract package (structurally impossible
+  — would create a circular module dependency)
 
-**Import Graph Validation:**
-- Validate module dependency graph
-- Detect transitive dependency violations
-- Ensure clean dependency tree
-- Use companion visualization tools (see below)
+See [arch-test.md](arch-test.md) for the full implementation reference.
 
-**Complete Implementation:**
-
-See the file [arch-test.md](arch-test.md)
-
-### 2. Third-Party Tools
+### Third-Party Tools
 
 **Architecture Testing:**
 - [arch-go](https://github.com/fdaines/arch-go): Comprehensive architecture testing
@@ -110,160 +105,92 @@ Use these companion tools to visualize and analyze your dependency graph:
 
 - **[godepgraph](https://github.com/kisielk/godepgraph)** (Recommended)
   - Generates dependency graphs in Graphviz DOT format
-  - Color-codes different package types
   - Simple, focused tool for package-level dependencies
 
   ```bash
-  # Install
   go install github.com/kisielk/godepgraph@latest
-
-  # Generate visualization
-  godepgraph -s github.com/yourorg/yourproject | dot -Tpng -o deps.png
-
-  # Focus on specific package
-  godepgraph -s -o github.com/yourorg/yourproject/modules/barmod | dot -Tpng -o barmod-deps.png
+  godepgraph -s github.com/pivaldi/mmw-todo | dot -Tpng -o todo-deps.png
   ```
 
 - **[goda](https://github.com/loov/goda)** (Advanced)
   - Comprehensive dependency analysis toolkit
-  - Multiple visualization commands (graph, tree, list)
-  - Supports filtering and clustering
-  - Can output directly to SVG
 
   ```bash
-  # Install
   go install github.com/loov/goda@latest
-
-  # Generate graph with clustering
-  goda graph "./..." | dot -Tsvg -o deps.svg
-
-  # Show dependency tree
-  goda tree "./..."
-
-  # Analyze specific service dependencies
-  goda graph "reach(./modules/barmod/...)" | dot -Tpng -o barmod-reach.png
+  goda graph "reach(./modules/todo/...)" | dot -Tpng -o todo-reach.png
   ```
 
 - **[graphdot](https://github.com/ewohltman/graphdot)** (Module-level)
   - Visualizes Go module dependencies (go.mod level)
-  - Good for understanding module-level architecture
-  - Run in project root to generate DOT output
 
   ```bash
-  # Install
   go install github.com/ewohltman/graphdot@latest
-
-  # Generate module dependency graph
   graphdot | dot -Tpng -o modules.png
   ```
-
-**Usage Recommendations:**
-
-1. **During Development**: Use `godepgraph` to quickly check service boundaries
-2. **Architecture Review**: Use `goda` for comprehensive dependency analysis
-3. **Module Planning**: Use `graphdot` to visualize module-level dependencies
-4. **Documentation**: Include generated graphs in architecture documentation
 
 ### Integration with CI
 
 Architecture tests should be:
-- **Required** - Block merge if tests fail
-- **Fast** - Run on every PR (~5-10 seconds)
-- **Clear** - Provide actionable error messages
-- **Comprehensive** - Cover all architectural rules
+- **Required** — Block merge if tests fail
+- **Fast** — Run on every PR (~5-10 seconds)
+- **Clear** — Provide actionable error messages
+- **Comprehensive** — Cover all architectural rules
 
 Example CI failure message:
 ```
 ✗ Architecture validation failed
 
 Checking: module-isolation
-  ✗ FAILED: modules/barmod/internal/adapters/outbound/helper.go
-    imports modules/foomod/internal/domain/entity
+  ✗ FAILED: modules/todo/internal/adapters/outbound/helper.go
+    imports modules/auth/internal/domain/user
     (cross-module internal import)
 
-Fix: Remove direct import of foomod internals.
-      Use contracts/definitions/foomod instead.
+Fix: Remove direct import of auth internals.
+      Use contracts/go/application/auth instead.
 ```
-
-### Additional Validation Rules
-
-**Naming Conventions:**
-```go
-// Ensure domain entities don't have infrastructure suffixes
-func checkNamingConventions() error {
-    forbiddenSuffixes := []string{"DTO", "Handler", "Controller", "Repository"}
-    // Check domain layer files...
-}
-```
-
-**Dependency Limits:**
-```go
-// Ensure services don't exceed dependency count
-func checkDependencyCount() error {
-    maxDependencies := 10
-    // Count imports per file...
-}
-```
-
-**Test Coverage:**
-```go
-// Ensure domain layer has high coverage
-func checkDomainCoverage() error {
-    minCoverage := 80.0 // percent
-    // Parse coverage.out...
-}
-```
-
-### References
-
-- [go-cleanarch](https://github.com/bxcodec/go-clean-arch) - Clean Architecture reference implementation in Go
-- [arch-go](https://github.com/fdaines/arch-go) - Architecture testing tool
-- [golang-standards/project-layout](https://github.com/golang-standards/project-layout) - Standard Go project layout
-
-**Note:** While go-cleanarch provides excellent examples of clean architecture in Go, our pattern adds:
-- Go workspaces for true module isolation
-- Contract definitions for explicit service boundaries
-- Support for both in-process and network communication
 
 ## Observability
 
-**Logging (Structured):**
+**Structured Logging:**
 
 ```go
-// modules/foomod/internal/adapters/inbound/connect/foo_handler.go
-slog.InfoContext(ctx, "foo created",
-    slog.String("foo_id", foo.ID().String()),
-    slog.String("owner_id", req.Msg.OwnerId),
+// modules/todo/internal/adapters/inbound/connect/todo_handler.go
+slog.InfoContext(ctx, "todo created",
+    slog.String("todo_id", todo.ID().String()),
+    slog.String("user_id", userID.String()),
 )
 ```
 
 ## Deployment
 
 **Development:**
-- All services run on localhost (in-process contract definitions)
+- All modules run in-process (contract interfaces satisfied by direct method calls)
 - Single `mise run dev` command
-- Hot reload via [air](https://github.com/air-verse/air).
+- Hot reload via [air](https://github.com/air-verse/air)
 
 **Production Options:**
 
 **Option 1: Single deployment (all modules in one process)**
 ```bash
-# Build single binary that runs all modules
 go build -o bin/mmw ./cmd/mmw
+./bin/mmw
 ```
 
 **Option 2: Separate deployments (distributed)**
-```bash
-# Build separate module binaries
-go build -o bin/foomod ./modules/foomod/cmd/foomod
-go build -o bin/barmod ./modules/barmod/cmd/barmod
 
-# Deploy to separate pods/hosts
-# Services use Connect/HTTP to communicate
+Replace in-process accessors with HTTP clients in the composition root:
+```go
+// cmd/mmw/main.go — after extracting auth to its own pod
+todoModule, _ := todo.New(todo.Infrastructure{
+    AuthSvc: defauth.NewPrivateHTTPClient(
+        authv1connect.NewAuthPrivateServiceClient(&http.Client{}, "https://auth.internal"),
+    ),
+})
 ```
+
+No application code changes — only the composition root changes.
 
 **Option 3: Hybrid (mix of co-located and distributed)**
 
-- Co-locate non-critical services
-- Distribute performance-critical services
-
+- Co-locate modules with shared transactional boundaries
+- Distribute modules with independent scaling requirements

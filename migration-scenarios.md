@@ -6,19 +6,20 @@
 
 **Migration path:**
 
-1. **Identify service boundaries** (1-2 weeks)
+1. **Identify module boundaries** (1-2 weeks)
    - Analyze domain and find bounded contexts
-   - Map existing code to future services
+   - Map existing code to future modules
 
-2. **Extract first service** (2-4 weeks)
-   - Create service module + contract definition
-   - Move domain logic to new service
+2. **Extract first module** (2-4 weeks)
+   - Create the module directory + `go.mod` + `go.work` entry
+   - Move domain logic to the new module
+   - Generate contracts via `protoc-gen-go-contracts`
    - Create adapters for dependencies
    - Test thoroughly
 
-3. **Repeat for remaining services** (incremental)
-   - Extract one service at a time
-   - Maintain working system throughout
+3. **Repeat for remaining modules** (incremental)
+   - Extract one module at a time
+   - Maintain a working system throughout
 
 **Effort:** Medium (requires refactoring, but incremental)
 
@@ -28,17 +29,18 @@
 
 **Migration path:**
 
-1. **Create contract definition modules** (1 week)
-   - Extract public APIs to contract definition modules
-   - Define interfaces and DTOs
+1. **Create proto definitions + generate contracts** (1 week)
+   - Write `.proto` service definitions for each bounded context
+   - Run `buf generate` with the standard plugin + `protoc-gen-go-contracts`
+   - Contracts land in `contracts/go/application/{domain}/`
 
 2. **Split into separate Go modules** (1-2 weeks)
-   - Create `go.mod` per service
+   - Create `go.mod` per module
    - Add `go.work` to coordinate
-   - Update imports to use contract definitions
+   - Update imports to use contract packages
 
 3. **Verify boundaries** (1 week)
-   - Add arch-test tool
+   - Add architecture tests via `mmw check arch`
    - Fix any violations
    - Add to CI
 
@@ -51,42 +53,49 @@
 **Migration path:**
 
 1. **Create monorepo** (1 week)
-   - Move services to single repo
-   - Keep separate modules
+   - Move services to a single repo under `modules/`
+   - Keep separate `go.mod` files
    - Add `go.work`
 
-2. **Create contract definition modules** (1-2 weeks)
-   - Extract in-process interfaces
-   - Implement InprocClient
-   - Keep Connect handlers
+2. **Generate contract packages** (1-2 weeks)
+   - Write `.proto` service definitions
+   - Run `buf generate` + `protoc-gen-go-contracts`
+   - Implement `connect_client.go` wrappers for network transport
 
-3. **Switch to in-process** (1 week per service)
-   - Update wiring to use contract definitions
-   - Test with both transports
-   - Remove network calls for co-located services
+3. **Switch to in-process** (1 week per module)
+   - Update composition root (`cmd/mmw/main.go`) to wire modules directly
+   - Use `authModule.PrivateService()` instead of an HTTP client
+   - Test with both transports before removing network plumbing
 
 **Effort:** Low (services already separated, just consolidate)
 
 ### Scenario 4: To Microservices (Distribution)
 
-**Starting point:** This pattern (Go Workspaces + Contract Definitions)
+**Starting point:** This pattern (Go Workspaces + Contract Packages)
 
 **Migration path:**
 
-1. **Enable Connect handlers** (1 week)
-   - Add protobuf contracts (if not using)
-   - Implement Connect handlers (inbound)
-   - Implement Connect clients (outbound)
+1. **Verify Connect handlers are wired** (1 day)
+   - Each module already exposes a Connect handler via its HTTP server
+   - Contracts already have `connect_client.go` wrappers (`defauth.NewPrivateHTTPClient`)
 
 2. **Test network transport** (1 week)
-   - Switch service A to use Connect client
-   - Keep services B, C on contract definitions
-   - Verify functionality
+   - In `cmd/mmw/main.go`, replace the in-process accessor with an HTTP client:
+     ```go
+     // Before (monolith):
+     AuthSvc: authModule.PrivateService()
 
-3. **Deploy separately** (1 week per service)
+     // After (distributed):
+     AuthSvc: defauth.NewPrivateHTTPClient(
+         authv1connect.NewAuthPrivateServiceClient(&http.Client{}, "https://auth.internal"),
+     )
+     ```
+   - No application code changes — only the composition root changes
+
+3. **Deploy separately** (1 week per module)
    - Create deployment manifests
-   - Deploy to separate hosts/pods
-   - Update service URLs
+   - Deploy auth module to its own pod
+   - Update the URL in the composition root
    - Monitor and iterate
 
-**Effort:** Very Low (services already isolated, adapters ready)
+**Effort:** Very Low (modules already isolated, Connect clients already generated)

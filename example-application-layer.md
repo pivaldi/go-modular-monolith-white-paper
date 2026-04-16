@@ -9,146 +9,138 @@ in adapters). It depends only on domain types and port interfaces.
 Ports are interfaces the application layer defines. Adapters implement them.
 
 ```go
-// modules/foomod/internal/application/ports/repository.go
+// modules/todo/internal/application/ports/repository.go
 package ports
 
 import (
     "context"
-    "github.com/example/mmw-foomod/internal/domain"
+    "github.com/google/uuid"
+    "github.com/pivaldi/mmw-todo/internal/domain"
 )
 
-type FooRepository interface {
-    Save(ctx context.Context, foo *domain.Foo) error
-    FindByID(ctx context.Context, id domain.FooID) (*domain.Foo, error)
-    FindAll(ctx context.Context, ownerID string) ([]*domain.Foo, error)
-    Delete(ctx context.Context, id domain.FooID) error
-    Health(ctx context.Context) error
-}
-
-// modules/foomod/internal/application/ports/events.go
-type EventDispatcher interface {
-    Dispatch(ctx context.Context, events []domain.DomainEvent) error
-}
-
-// modules/foomod/internal/application/ports/uow.go
-// UnitOfWork wraps a command in a database transaction.
-type UnitOfWork interface {
-    Do(ctx context.Context, fn func(ctx context.Context) error) error
+type TodoRepository interface {
+    Save(ctx context.Context, todo *domain.Todo) error
+    FindByID(ctx context.Context, id domain.TodoID) (*domain.Todo, error)
+    FindByUserID(ctx context.Context, userID uuid.UUID) ([]*domain.Todo, error)
+    Delete(ctx context.Context, id domain.TodoID) error
+    Health(ctx context.Context) (any, error)
 }
 ```
 
-## Application Service Facade
-
-The `FooApplicationService` is a thin facade that delegates to
-command and query handlers. It is the only type the inbound adapter
-(Connect handler) depends on.
+```go
+// modules/todo/internal/application/ports/events.go
+type EventDispatcher interface {
+    Dispatch(ctx context.Context, events []domain.DomainEvent) error
+}
+```
 
 ```go
-// modules/foomod/internal/application/service.go
+// modules/todo/internal/application/ports/uow.go (via platform)
+type UnitOfWork interface {
+    WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
+    Executor(ctx context.Context) db.DBExecutor
+}
+```
+
+## Application Service (Interface + Facade)
+
+The `TodoService` interface is what the inbound adapter depends on — this allows
+the handler to be tested with a real service backed by mocked ports.
+
+```go
+// modules/todo/internal/application/service.go
 package application
 
-import (
-    "context"
-    "github.com/example/mmw-foomod/internal/application/command"
-    "github.com/example/mmw-foomod/internal/application/dto"
-    "github.com/example/mmw-foomod/internal/application/ports"
-    "github.com/example/mmw-foomod/internal/application/query"
-)
-
-type FooApplicationService struct {
-    createHandler   *command.CreateFooHandler
-    completeHandler *command.CompleteFooHandler
-    deleteHandler   *command.DeleteFooHandler
-    getFooHandler   *query.GetFooHandler
-    listHandler     *query.ListFoosHandler
-    repo            ports.FooRepository
+type TodoService interface {
+    CreateTodo(ctx context.Context, req *todov1.CreateTodoRequest) (*todov1.CreateTodoResponse, error)
+    GetTodo(ctx context.Context, req *todov1.GetTodoRequest) (*todov1.GetTodoResponse, error)
+    UpdateTodo(ctx context.Context, req *todov1.UpdateTodoRequest) (*todov1.UpdateTodoResponse, error)
+    CompleteTodo(ctx context.Context, req *todov1.CompleteTodoRequest) (*todov1.CompleteTodoResponse, error)
+    ReopenTodo(ctx context.Context, req *todov1.ReopenTodoRequest) (*todov1.ReopenTodoResponse, error)
+    DeleteTodo(ctx context.Context, req *todov1.DeleteTodoRequest) (*todov1.DeleteTodoResponse, error)
+    ListTodos(ctx context.Context, req *todov1.ListTodosRequest) (*todov1.ListTodosResponse, error)
+    Health(ctx context.Context) (any, error)
 }
 
-func NewFooApplicationService(
-    repo ports.FooRepository,
+// TodoApplicationService is the concrete implementation of TodoService.
+type TodoApplicationService struct {
+    createTodo  *command.CreateTodoCommand
+    updateTodo  *command.UpdateTodoCommand
+    completeTodo *command.CompleteTodoCommand
+    reopenTodo  *command.ReopenTodoCommand
+    deleteTodo  *command.DeleteTodoCommand
+    getTodo     *query.GetTodoQuery
+    listTodos   *query.ListTodosQuery
+    repo        ports.TodoRepository
+}
+
+func NewTodoApplicationService(
+    repo ports.TodoRepository,
     uow ports.UnitOfWork,
     dispatcher ports.EventDispatcher,
-) *FooApplicationService {
-    return &FooApplicationService{
-        createHandler:   command.NewCreateFooHandler(repo, uow, dispatcher),
-        completeHandler: command.NewCompleteFooHandler(repo, uow, dispatcher),
-        deleteHandler:   command.NewDeleteFooHandler(repo, uow),
-        getFooHandler:   query.NewGetFooHandler(repo),
-        listHandler:     query.NewListFoosHandler(repo),
-        repo:            repo,
+) *TodoApplicationService {
+    return &TodoApplicationService{
+        createTodo:   command.NewCreateTodoCommand(repo, uow, dispatcher),
+        updateTodo:   command.NewUpdateTodoCommand(repo, uow, dispatcher),
+        completeTodo: command.NewCompleteTodoCommand(repo, uow, dispatcher),
+        reopenTodo:   command.NewReopenTodoCommand(repo, uow, dispatcher),
+        deleteTodo:   command.NewDeleteTodoCommand(repo, uow, dispatcher),
+        getTodo:      query.NewGetTodoQuery(repo),
+        listTodos:    query.NewListTodosQuery(repo),
+        repo:         repo,
     }
-}
-
-func (s *FooApplicationService) CreateFoo(ctx context.Context, cmd dto.CreateFooCommand) (*dto.FooDTO, error) {
-    return s.createHandler.Handle(ctx, cmd)
-}
-
-func (s *FooApplicationService) CompleteFoo(ctx context.Context, cmd dto.CompleteFooCommand) error {
-    return s.completeHandler.Handle(ctx, cmd)
-}
-
-func (s *FooApplicationService) GetFoo(ctx context.Context, q dto.GetFooQuery) (*dto.FooDTO, error) {
-    return s.getFooHandler.Handle(ctx, q)
-}
-
-func (s *FooApplicationService) ListFoos(ctx context.Context, q dto.ListFoosQuery) ([]*dto.FooDTO, error) {
-    return s.listHandler.Handle(ctx, q)
-}
-
-func (s *FooApplicationService) Health(ctx context.Context) error {
-    return s.repo.Health(ctx)
 }
 ```
 
 ## Command Handler (Write Side)
 
 Command handlers perform writes. They use the Unit of Work to wrap the
-operation in a transaction, then dispatch domain events.
+operation in a transaction, then dispatch domain events to the outbox.
 
 ```go
-// modules/foomod/internal/application/command/create_foo.go
+// modules/todo/internal/application/command/create_todo.go
 package command
 
-import (
-    "context"
-    "fmt"
-
-    "github.com/example/mmw-foomod/internal/application/dto"
-    "github.com/example/mmw-foomod/internal/application/ports"
-    "github.com/example/mmw-foomod/internal/domain"
-)
-
-type CreateFooHandler struct {
-    repo       ports.FooRepository
-    uow        ports.UnitOfWork
-    dispatcher ports.EventDispatcher
+type CreateTodoCommand struct {
+    repository      ports.TodoRepository
+    unitOfWork      ports.UnitOfWork
+    eventDispatcher ports.EventDispatcher
 }
 
-func NewCreateFooHandler(repo ports.FooRepository, uow ports.UnitOfWork, dispatcher ports.EventDispatcher) *CreateFooHandler {
-    return &CreateFooHandler{repo: repo, uow: uow, dispatcher: dispatcher}
+func NewCreateTodoCommand(
+    repo ports.TodoRepository,
+    uow ports.UnitOfWork,
+    dispatcher ports.EventDispatcher,
+) *CreateTodoCommand {
+    return &CreateTodoCommand{repository: repo, unitOfWork: uow, eventDispatcher: dispatcher}
 }
 
-func (h *CreateFooHandler) Handle(ctx context.Context, cmd dto.CreateFooCommand) (*dto.FooDTO, error) {
-    title, err := domain.NewFooTitle(cmd.Title)
-    if err != nil {
-        return nil, fmt.Errorf("create foo: %w", err)
+func (c *CreateTodoCommand) Execute(
+    ctx context.Context,
+    req *todov1.CreateTodoRequest,
+) (*todov1.CreateTodoResponse, error) {
+    userID, ok := appctx.UserID(ctx) // extracted from JWT by auth middleware
+    if !ok {
+        return nil, platform.NewDomainError(platform.CodeUnauthenticated, "missing user id")
     }
 
-    foo, err := domain.NewFoo(title, domain.Priority(cmd.Priority), cmd.OwnerID)
-    if err != nil {
-        return nil, fmt.Errorf("create foo: %w", err)
-    }
+    title, err := domain.NewTitle(req.GetTitle())
+    if err != nil { return nil, err }
 
-    if err := h.uow.Do(ctx, func(ctx context.Context) error {
-        if err := h.repo.Save(ctx, foo); err != nil {
-            return err
-        }
-        return h.dispatcher.Dispatch(ctx, foo.PopEvents())
-    }); err != nil {
-        return nil, err
-    }
+    var resp *todov1.CreateTodoResponse
+    err = c.unitOfWork.WithTransaction(ctx, func(txCtx context.Context) error {
+        todo, err := domain.NewTodo(title, desc, dueDate, userID)
+        if err != nil { return err }
 
-    return dto.FooDTOFromDomain(foo), nil
+        if err := c.repository.Save(txCtx, todo); err != nil { return err }
+
+        // Dispatch to outbox table — same transaction as the domain write
+        if err := c.eventDispatcher.Dispatch(txCtx, todo.Events()); err != nil { return err }
+
+        resp = mapToProtoResponse(todo)
+        return nil
+    })
+    return resp, err
 }
 ```
 
@@ -157,90 +149,44 @@ func (h *CreateFooHandler) Handle(ctx context.Context, cmd dto.CreateFooCommand)
 Query handlers perform reads only — no writes, no events, no Unit of Work.
 
 ```go
-// modules/foomod/internal/application/query/get_foo.go
+// modules/todo/internal/application/query/get_todo.go
 package query
 
-import (
-    "context"
-    "fmt"
-
-    "github.com/example/mmw-foomod/internal/application/dto"
-    "github.com/example/mmw-foomod/internal/application/ports"
-    "github.com/example/mmw-foomod/internal/domain"
-)
-
-type GetFooHandler struct {
-    repo ports.FooRepository
+type GetTodoQuery struct {
+    repo ports.TodoRepository
 }
 
-func NewGetFooHandler(repo ports.FooRepository) *GetFooHandler {
-    return &GetFooHandler{repo: repo}
+func NewGetTodoQuery(repo ports.TodoRepository) *GetTodoQuery {
+    return &GetTodoQuery{repo: repo}
 }
 
-func (h *GetFooHandler) Handle(ctx context.Context, q dto.GetFooQuery) (*dto.FooDTO, error) {
-    id, err := domain.FooIDFromString(q.ID)
+func (q *GetTodoQuery) Execute(
+    ctx context.Context,
+    req *todov1.GetTodoRequest,
+) (*todov1.GetTodoResponse, error) {
+    id, err := domain.TodoIDFromString(req.GetId())
     if err != nil {
-        return nil, fmt.Errorf("get foo: %w", err)
+        return nil, platform.NewDomainError(platform.CodeInvalidArgument, "invalid todo id")
     }
 
-    foo, err := h.repo.FindByID(ctx, id)
+    todo, err := q.repo.FindByID(ctx, id)
     if err != nil {
-        return nil, fmt.Errorf("get foo: %w", err)
+        return nil, err
     }
 
-    return dto.FooDTOFromDomain(foo), nil
+    return &todov1.GetTodoResponse{Todo: mapToProto(todo)}, nil
 }
 ```
 
-## DTOs
-
-DTOs are plain structs with no domain logic. They cross the boundary
-between the inbound adapter and the application layer.
+## Wiring in the Module Factory
 
 ```go
-// modules/foomod/internal/application/dto/foo_dto.go
-package dto
+// modules/todo/todo.go — newApplicationService()
+func newApplicationService(infra Infrastructure) application.TodoService {
+    uow := pfuow.New(infra.DBPool)
+    todoRepo := postgres.NewPostgresTodoRepository(uow)
+    eventDispatcher := events.NewPostgresOutboxDispatcher(uow)
 
-import (
-    "github.com/google/uuid"
-    "github.com/example/mmw-foomod/internal/domain"
-)
-
-type CreateFooCommand struct {
-    Title    string
-    Priority string
-    OwnerID  uuid.UUID
-}
-
-type CompleteFooCommand struct {
-    ID      string
-    OwnerID uuid.UUID
-}
-
-type GetFooQuery struct {
-    ID      string
-    OwnerID uuid.UUID
-}
-
-type ListFoosQuery struct {
-    OwnerID uuid.UUID
-}
-
-type FooDTO struct {
-    ID       string
-    Title    string
-    Status   string
-    Priority string
-    OwnerID  string
-}
-
-func FooDTOFromDomain(f *domain.Foo) *FooDTO {
-    return &FooDTO{
-        ID:       f.ID().String(),
-        Title:    f.Title().String(),
-        Status:   string(f.Status()),
-        Priority: string(f.Priority()),
-        OwnerID:  f.OwnerID().String(),
-    }
+    return application.NewTodoApplicationService(todoRepo, uow, eventDispatcher)
 }
 ```

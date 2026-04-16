@@ -1,149 +1,172 @@
 # Cross-Service Events
 
-Modules communicate asynchronously via domain events. The outbox
-pattern guarantees events are never lost even if the process crashes
-between a DB commit and a publish.
+Modules communicate asynchronously via domain events. The outbox pattern guarantees
+events are never lost even if the process crashes between a DB commit and a publish.
 
 ## Architecture Overview
 
 ```
-foomod (producer)                   barmod / notifier (consumers)
-─────────────────                   ────────────────────────────
-Command handler                     EventsRelay (background)
-  └── uow.Do(ctx, fn)                 └── poll foo.event table
-      ├── repo.Save()                 └── publish to Watermill bus
-      └── dispatcher.Dispatch()           └── barmod subscriber
-          └── INSERT foo.event                 └── handle event
+auth module (producer)                  todo / notifications (consumers)
+──────────────────────                  ─────────────────────────────────
+Command handler                         EventsRelay (background)
+  └── uow.WithTransaction(ctx, fn)        └── poll auth.event table
+      ├── repo.Save()                     └── publish to Watermill bus
+      └── dispatcher.Dispatch()               └── notifications subscriber
+          └── INSERT auth.event                   └── handle event
           (same transaction)
 ```
 
-Events are written atomically with the business data. If the process
-crashes before the relay polls, events are still in the DB and will be
-published on the next restart.
+Events are written atomically with the business data. If the process crashes before
+the relay polls, events are still in the DB and will be published on the next restart.
 
-## Step 1: Declare Events in the Domain
+## Step 1: Declare Event Topics in the Contract
 
-```go
-// modules/foomod/internal/domain/events.go
-package domain
-
-var AllEvents = []string{
-    "foo.created",
-    "foo.completed",
-    "foo.deleted",
-}
-
-type FooCreated struct {
-    FooID   string
-    OwnerID string
-}
-func (e FooCreated) EventType() string { return "foo.created" }
-```
-
-Export `AllEvents` from the module root for the composition root to use:
+Topic constants and event type aliases are generated into `contracts/go/application/{domain}/events_gen.go`
+by `protoc-gen-go-contracts`. They come from proto messages annotated with `(options.v1.topic)`.
 
 ```go
-// modules/foomod/foomod.go
-var NotifyEvents = domain.AllEvents
+// contracts/go/application/auth/events_gen.go (generated — do not edit)
+const (
+    TopicUserRegistered  = "auth.user.registered.v1"
+    TopicUserDeleted     = "auth.user.deleted.v1"
+    TopicPasswordChanged = "auth.user.password_changed.v1"
+    TopicUserLoggedIn    = "auth.user.logged_in.v1"
+)
+
+var Topics = []string{TopicUserRegistered, TopicUserDeleted, TopicPasswordChanged, TopicUserLoggedIn}
 ```
 
-## Step 2: Write Events to the Outbox
+The `Topics` slice is what the composition root uses to subscribe the notifications module.
 
-The `PostgresOutboxDispatcher` (see [example-outbound-adapter.md](example-outbound-adapter.md))
-writes events to `foo.event` inside the Unit of Work transaction.
+## Step 2: Emit Domain Events in Command Handlers
+
+```go
+// modules/auth/internal/application/command/register_user.go
+func (c *RegisterUserCommand) Execute(ctx context.Context, req *authv1.RegisterRequest) (*authv1.RegisterResponse, error) {
+    var resp *authv1.RegisterResponse
+    err := c.unitOfWork.WithTransaction(ctx, func(txCtx context.Context) error {
+        user, err := domain.NewUser(email, password)
+        if err != nil { return err }
+
+        if err := c.repository.Save(txCtx, user); err != nil { return err }
+
+        // Dispatch into the outbox table (same transaction)
+        return c.eventDispatcher.Dispatch(txCtx, user.Events())
+    })
+    return resp, err
+}
+```
+
+## Step 3: Write Events to the Outbox
+
+The `PostgresOutboxDispatcher` writes to `auth.event` **inside the Unit of Work transaction**.
 No direct Watermill calls happen in the command handler.
 
 ```
 BEGIN TRANSACTION
-  INSERT INTO foo.foo  (business data)
-  INSERT INTO foo.event (domain events)
+  INSERT INTO auth.user  (business data)
+  INSERT INTO auth.event (domain events)
 COMMIT
 ```
 
-## Step 3: Relay Events to Watermill
+## Step 4: Relay Events to Watermill
 
-The `EventsRelay` (from `ogl/db/outbox`) is started as a goroutine inside
+The `EventsRelay` (from `mmw/pkg/platform/db/outbox`) is started as a goroutine in
 `Module.Start`. It polls the outbox table and publishes unpublished events:
+
+```go
+// modules/auth/auth.go — inside New()
+relay := pfoutbox.NewEnventsRelay(
+    infra.DBPool,
+    infra.EventBus,     // SystemEventBus interface (write side)
+    infra.Logger,
+    "auth.event",       // outbox table name (schema.table)
+)
+```
 
 ```go
 // Inside Module.Start():
 g.Go(func() error {
-    relay.Start(gCtx) // blocks until gCtx is canceled
+    m.relay.Start(gCtx) // blocks until gCtx is canceled
     return nil
 })
 ```
 
-The relay is created in `New` with the table name and event bus:
+## Step 5: Subscribe in the Notifications Module
+
+The notifications module receives the raw Watermill `GoChannel` and subscribes
+to topics from the generated `Topics` slices:
 
 ```go
-relay := ogloutbox.NewEnventsRelay(
-    infra.DBPool,
-    infra.EventBus,    // Watermill SystemEventBus wrapper
-    infra.Logger,
-    "foo.event",       // outbox table name (schema.table)
-)
-```
-
-## Step 4: Subscribe in a Consuming Module
-
-Consuming modules receive the raw Watermill bus (not the wrapped bus)
-and subscribe to topics matching the producer's `AllEvents`:
-
-```go
-// modules/notifications/notifications.go
-type Infrastructure struct {
-    Subscriber  *gochannel.GoChannel   // raw Watermill bus
-    Logger      *slog.Logger
-    Topics      []string               // from foomod.NotifyEvents + barmod.NotifyEvents
-    WithNotifier bool
-}
-```
-
-In `cmd/mmw/main.go`, the topics are assembled from all producers:
-
-```go
-notifEvents := append(foomod.NotifyEvents, barmod.NotifyEvents...)
+// cmd/mmw/main.go
 notifModule, _ := notifications.New(notifications.Infrastructure{
     Subscriber: rawBus,
     Logger:     logger.With("module", notifications.ModuleName),
-    Topics:     notifEvents,
+    Topics:     append(tododef.Topics, authdef.Topics...),
+    // tododef.Topics = ["todo.userTasks.created.v1", "todo.userTask.deleted.v1", …]
+    // authdef.Topics = ["auth.user.registered.v1", "auth.user.deleted.v1", …]
 })
+```
+
+For targeted inbound event handling (e.g. todo reacts to auth.user.deleted), a
+Watermill router is set up in `newEventRouter`:
+
+```go
+// modules/todo/todo.go
+router.AddConsumerHandler(
+    "todo.on_auth_user_deleted",     // unique handler name (stable across restarts)
+    defauth.TopicUserDeleted,        // = "auth.user.deleted.v1"
+    infra.Subscriber,
+    inevents.HandleUserDeleted(deleteUserTasksCmd),
+)
 ```
 
 ## Outbox Table Schema
 
-Each module manages its own outbox table, scoped to its schema:
+Each module manages its own outbox table, scoped to its PostgreSQL schema:
 
 ```sql
--- modules/foomod/internal/infra/persistence/migrations/002_create_event_table.sql
-CREATE TABLE foo.event (
+-- modules/auth/internal/infra/persistence/migrations/scripts/
+CREATE TABLE auth.event (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     aggregate_id UUID NOT NULL,
     event_type   VARCHAR(100) NOT NULL,
-    payload      JSONB NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    payload      BYTEA NOT NULL,           -- protobuf-encoded
+    occurred_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     published_at TIMESTAMPTZ
 );
 
-CREATE INDEX ON foo.event (published_at) WHERE published_at IS NULL;
+CREATE INDEX ON auth.event (published_at) WHERE published_at IS NULL;
 ```
 
 ## Event Bus in the Composition Root
 
-The raw Watermill bus and the wrapped `SystemEventBus` are created once
-and shared. Producers receive `SystemEventBus` (write side); consumers
-that need raw subscriptions receive the `*gochannel.GoChannel` directly:
+The raw Watermill bus and the wrapped `SystemEventBus` are created once and shared.
+Producers receive `SystemEventBus` (write side via relay); consumers that need raw
+subscriptions receive the `*gochannel.GoChannel` directly:
 
 ```go
 rawBus := gochannel.NewGoChannel(
     gochannel.Config{OutputChannelBuffer: 1024, Persistent: true},
     watermill.NewSlogLogger(logger),
 )
-systemBus := oglevents.NewWatermillBus(rawBus)
+eventBus := pfevents.NewWatermillBus(rawBus)
 
-// foomod gets the wrapped bus (for the relay)
-foomod.New(foomod.Infrastructure{EventBus: systemBus, ...})
+// Auth gets the wrapped bus (for the outbox relay to publish on)
+auth.New(auth.Infrastructure{EventBus: eventBus, ...})
 
-// notifications gets the raw bus (for subscriptions)
+// Todo gets both (relay publishes; event router subscribes)
+todo.New(todo.Infrastructure{EventBus: eventBus, Subscriber: rawBus, ...})
+
+// Notifications gets the raw bus (for subscriptions only)
 notifications.New(notifications.Infrastructure{Subscriber: rawBus, ...})
 ```
+
+## Outbox Guarantees
+
+| Property | Detail |
+|---|---|
+| At-least-once delivery | A crash between `Publish` and the `UPDATE` causes relay to retry on next tick. Consumers must be idempotent. |
+| Ordering | Rows fetched `ORDER BY occurred_at ASC` — preserves intra-aggregate event order within a batch. |
+| Latency | Up to 2 s between domain write and bus publication (relay tick interval). |
+| Multi-instance safe | `SELECT … FOR UPDATE SKIP LOCKED` prevents two relay instances from processing the same row. |

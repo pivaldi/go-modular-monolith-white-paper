@@ -1,606 +1,133 @@
 # Architecture Testing
 
-## Complete Implementation
+## Implementation
+
+The architecture validator lives in `mmw/pkg/archtest/` and is invoked via the `mmw check arch` CLI command.
 
 ```go
-// tools/arch-test/main.go
-package main
+// mmw/pkg/archtest/archtest.go
+package archtest
 
-import (
-    "fmt"
-    "go/parser"
-    "go/token"
-    "os"
-    "path/filepath"
-    "strings"
-)
+// RunAll runs all architectural validators from repoRoot and returns exit code (0=pass, 1=fail).
+func RunAll(repoRoot string) int {
+    rep := reporter.NewReporter(os.Stdout)
+    rep.PrintHeader("Architecture Validation")
 
-type ArchRule struct {
-    Name        string
-    Description string
-    Check       func() error
-}
+    // Per-module arch:check tasks via mise
+    services, err := orchestrator.DiscoverServices(repoRoot+"/modules", "arch:check")
+    for _, svc := range services {
+        result := orchestrator.RunServiceCheck(svc.Path, svc.Name)
+        rep.PrintCheck(svc.Name, "Validating service architecture boundaries", err)
+    }
 
-func main() {
-    rules := []ArchRule{
-        {
-            Name:        "module-isolation",
-            Description: "Modules must not import other modules' internal packages",
-            Check:       checkModuleIsolation,
+    // Cross-cutting validators
+    validators := []Validator{
+        &custom.ContractPurityValidator{
+            ContractsDir: repoRoot + "/contracts/definitions",
+            RepoRoot:     repoRoot,
         },
-        {
-            Name:        "domain-purity",
-            Description: "Domain layer must not import infrastructure",
-            Check:       checkDomainPurity,
+        &custom.LibDependencyValidator{
+            LibsDir:  repoRoot + "/libs",
+            MmwDir:   repoRoot + "/mmw",
+            RepoRoot: repoRoot,
         },
-        {
-            Name:        "adapter-direction",
-            Description: "Adapters depend on ports, not vice versa",
-            Check:       checkAdapterDirection,
-        },
-        {
-            Name:        "contract-definition-purity",
-            Description: "Contract definition modules must have zero dependencies",
-            Check:       checkContractDefinitionPurity,
-        },
-        {
-            Name:        "module-dependencies",
-            Description: "Validate module dependency graph (checks go.mod, not package imports)",
-            Check:       checkModuleDependencies,
-        },
-        {
-            Name:        "layer-dependencies",
-            Description: "Layers must depend only on inner layers",
-            Check:       checkLayerDependencies,
-        },
+        &custom.DomainPurityValidator{ModulesDir: repoRoot + "/modules"},
+        &custom.ApplicationPurityValidator{ModulesDir: repoRoot + "/modules"},
+    }
+    for _, v := range validators {
+        rep.PrintCheck(v.Name(), v.Description(), v.Check())
     }
 
-    fmt.Println("Validating architectural boundaries...\n")
-
-    failed := false
-    for _, rule := range rules {
-        fmt.Printf("Checking: %s\n", rule.Name)
-        fmt.Printf("  %s\n", rule.Description)
-
-        if err := rule.Check(); err != nil {
-            fmt.Printf("  ✗ FAILED: %v\n\n", err)
-            failed = true
-        } else {
-            fmt.Printf("  ✓ PASSED\n\n")
-        }
-    }
-
-    if failed {
-        fmt.Println("✗ Architecture validation failed")
-        os.Exit(1)
-    }
-
-    fmt.Println("✓ All architecture checks passed")
-}
-
-// checkModuleIsolation ensures modules don't import each other's internals
-func checkModuleIsolation() error {
-    modulesDir := "modules"
-    modules, err := os.ReadDir(modulesDir)
-    if err != nil {
-        return err
-    }
-
-    for _, module := range modules {
-        if !module.IsDir() {
-            continue
-        }
-
-        modulePath := filepath.Join(modulesDir, module.Name())
-
-        err := filepath.Walk(modulePath, func(path string, info os.FileInfo, err error) error {
-            if err != nil {
-                return err
-            }
-
-            if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-                return nil
-            }
-
-            fset := token.NewFileSet()
-            f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
-            if err != nil {
-                return err
-            }
-
-            for _, imp := range f.Imports {
-                importPath := strings.Trim(imp.Path.Value, "\"")
-
-                // Check if importing another module's internal
-                for _, otherModule := range modules {
-                    if otherModule.Name() == module.Name() {
-                        continue
-                    }
-
-                    forbiddenImport := fmt.Sprintf("modules/%s/internal", otherModule.Name())
-                    if strings.Contains(importPath, forbiddenImport) {
-                        return fmt.Errorf(
-                            "%s imports %s (cross-module internal import)",
-                            path, importPath,
-                        )
-                    }
-                }
-            }
-
-            return nil
-        })
-
-        if err != nil {
-            return err
-        }
-    }
-
-    return nil
-}
-
-// checkDomainPurity ensures domain layer has no infrastructure dependencies
-func checkDomainPurity() error {
-    forbiddenImports := []string{
-        "database/sql",
-        "net/http",
-        "/adapters/",
-        "/infra/",
-        "github.com/gin-gonic",
-        "github.com/gorilla",
-        "gorm.io",
-        "connectrpc.com",
-    }
-
-    return filepath.Walk("modules", func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            return err
-        }
-
-        // Only check domain layer files
-        if !strings.Contains(path, "/internal/domain/") || !strings.HasSuffix(path, ".go") {
-            return nil
-        }
-
-        fset := token.NewFileSet()
-        f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
-        if err != nil {
-            return err
-        }
-
-        for _, imp := range f.Imports {
-            importPath := strings.Trim(imp.Path.Value, "\"")
-
-            for _, forbidden := range forbiddenImports {
-                if strings.Contains(importPath, forbidden) {
-                    return fmt.Errorf(
-                        "%s: domain imports forbidden package %s",
-                        path, importPath,
-                    )
-                }
-            }
-        }
-
-        return nil
-    })
-}
-
-// checkAdapterDirection ensures adapters implement ports, not vice versa
-func checkAdapterDirection() error {
-    return filepath.Walk("modules", func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            return err
-        }
-
-        // Check application/ports files
-        if !strings.Contains(path, "/application/ports/") || !strings.HasSuffix(path, ".go") {
-            return nil
-        }
-
-        fset := token.NewFileSet()
-        f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
-        if err != nil {
-            return err
-        }
-
-        // Ports must not import adapters
-        for _, imp := range f.Imports {
-            importPath := strings.Trim(imp.Path.Value, "\"")
-
-            if strings.Contains(importPath, "/adapters/") {
-                return fmt.Errorf(
-                    "%s: port imports adapter (dependency inversion violated)",
-                    path,
-                )
-            }
-        }
-
-        return nil
-    })
-}
-
-// checkContractDefinitionPurity ensures contract definition modules:
-// 1. Have no external dependencies in go.mod (literally zero require statements)
-// 2. Never import any internal/ packages (from any service)
-func checkContractDefinitionPurity() error {
-    contractDefModules, err := os.ReadDir("contracts/definitions")
-    if err != nil {
-        // contracts/definitions directory might not exist yet
-        return nil
-    }
-
-    for _, contractDef := range contractDefModules {
-        if !contractDef.IsDir() {
-            continue
-        }
-
-        contractDefPath := filepath.Join("contracts/definitions", contractDef.Name())
-
-        // Check 1: Verify go.mod has NO external dependencies
-        if err := checkGoModPurity(contractDefPath, contractDef.Name()); err != nil {
-            return err
-        }
-
-        // Check 2: Verify contract definition files never import internal/ packages
-        if err := checkNoInternalImports(contractDefPath, contractDef.Name()); err != nil {
-            return err
-        }
-    }
-
-    return nil
-}
-
-// checkGoModPurity verifies a contract definition module has zero external dependencies
-func checkGoModPurity(contractDefPath, contractDefName string) error {
-    goModPath := filepath.Join(contractDefPath, "go.mod")
-    content, err := os.ReadFile(goModPath)
-    if err != nil {
-        return nil // go.mod might not exist yet
-    }
-
-    // Parse go.mod for require statements
-    lines := strings.Split(string(content), "\n")
-    inRequire := false
-    for _, line := range lines {
-        line = strings.TrimSpace(line)
-
-        if strings.HasPrefix(line, "require (") {
-            inRequire = true
-            continue
-        }
-
-        if inRequire && line == ")" {
-            inRequire = false
-            continue
-        }
-
-        if inRequire || strings.HasPrefix(line, "require ") {
-            // Allow only indirect dependencies (from go.sum)
-            if !strings.Contains(line, "// indirect") && !strings.HasPrefix(line, "//") {
-                // Check if it's an external dependency (contains '.')
-                parts := strings.Fields(line)
-                if len(parts) > 0 && strings.Contains(parts[0], ".") {
-                    return fmt.Errorf(
-                        "contracts/definitions/%s has external dependency: %s\n"+
-                        "\n"+
-                        "Contract definitions must have ZERO dependencies (no require statements).\n"+
-                        "\n"+
-                        "If you see module internals here, the module itself (not the contract) should satisfy the interface.\n"+
-                        "The *Module type lives in: modules/%s/ (the module root file, e.g. foomod.go)\n"+
-                        "\n"+
-                        "Contract definition modules should contain ONLY:\n"+
-                        "  - Interfaces (api.go)\n"+
-                        "  - DTOs (dto.go)\n"+
-                        "  - Errors (errors.go)\n"+
-                        "  - InprocClient (thin wrapper)\n",
-                        contractDefName, line, contractDefName,
-                    )
-                }
-            }
-        }
-    }
-
-    return nil
-}
-
-// checkNoInternalImports verifies contract definition code never imports internal/ packages
-func checkNoInternalImports(contractDefPath, contractDefName string) error {
-    err := filepath.Walk(contractDefPath, func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            return err
-        }
-
-        if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-            return nil
-        }
-
-        fset := token.NewFileSet()
-        f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
-        if err != nil {
-            return err
-        }
-
-        for _, imp := range f.Imports {
-            importPath := strings.Trim(imp.Path.Value, "\"")
-
-            // Contract definition modules CANNOT import ANY internal/ packages
-            if strings.Contains(importPath, "/internal/") {
-                return fmt.Errorf(
-                    "contracts/definitions/%s/%s: imports internal package: %s\n"+
-                    "\n"+
-                    "Contract definition modules must NEVER import internal/ packages from any service.\n"+
-                    "\n"+
-                    "The *Module type satisfies the contract interface directly — no separate impl needed.\n"+
-                    "  The module root file lives at: modules/%s/<name>.go\n"+
-                    "\n"+
-                    "Contract definition modules can only import:\n"+
-                    "  - Standard library\n"+
-                    "  - Other contract definition modules (public APIs)\n",
-                    contractDefName, filepath.Base(path), importPath, contractDefName,
-                )
-            }
-        }
-
-        return nil
-    })
-
-    return err
-}
-
-// checkModuleDependencies validates the module dependency graph.
-// NOTE: This checks MODULE-level dependencies (go.mod require statements),
-// NOT package-level imports (which the Go compiler already validates).
-// Go workspaces allow module cycles, but we forbid them architecturally.
-func checkModuleDependencies() error {
-    // Build dependency graph from go.mod files
-    graph := make(map[string][]string)
-
-    err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            return err
-        }
-
-        if info.Name() != "go.mod" {
-            return nil
-        }
-
-        content, err := os.ReadFile(path)
-        if err != nil {
-            return err
-        }
-
-        // Extract module name
-        lines := strings.Split(string(content), "\n")
-        var moduleName string
-        for _, line := range lines {
-            if strings.HasPrefix(line, "module ") {
-                moduleName = strings.TrimSpace(strings.TrimPrefix(line, "module "))
-                break
-            }
-        }
-
-        // Extract dependencies
-        var deps []string
-        inRequire := false
-        for _, line := range lines {
-            line = strings.TrimSpace(line)
-
-            if strings.HasPrefix(line, "require (") {
-                inRequire = true
-                continue
-            }
-
-            if inRequire && line == ")" {
-                inRequire = false
-                continue
-            }
-
-            if inRequire || strings.HasPrefix(line, "require ") {
-                parts := strings.Fields(line)
-                if len(parts) > 0 && strings.Contains(parts[0], "mmw") {
-                    deps = append(deps, parts[0])
-                }
-            }
-        }
-
-        graph[moduleName] = deps
-        return nil
-    })
-
-    if err != nil {
-        return err
-    }
-
-    // Check for circular dependencies at MODULE level
-    // NOTE: Go compiler prevents package-level cycles automatically.
-    // However, Go workspaces ALLOW module-level cycles (A requires B, B requires A).
-    // We forbid module cycles because:
-    // - Contract definition modules should be dependency-free (pure interfaces)
-    // - Services should depend on contract definitions, not vice versa
-    // - Circular module deps prevent independent evolution
-    //
-    // Example violation:
-    //   modules/barmod/go.mod: require contracts/definitions/foomod ✓ OK
-    //   contracts/definitions/foomod/go.mod: require modules/barmod ✗ CYCLE!
-    for module := range graph {
-        visited := make(map[string]bool)
-        if hasCycle(module, graph, visited, make(map[string]bool)) {
-            return fmt.Errorf("circular dependency detected involving %s", module)
-        }
-    }
-
-    return nil
-}
-
-// hasCycle detects circular dependencies at the MODULE level using DFS.
-// This checks go.mod dependencies, NOT package imports (compiler already prevents those).
-func hasCycle(module string, graph map[string][]string, visited, recStack map[string]bool) bool {
-    visited[module] = true
-    recStack[module] = true
-
-    for _, dep := range graph[module] {
-        if !visited[dep] {
-            if hasCycle(dep, graph, visited, recStack) {
-                return true
-            }
-        } else if recStack[dep] {
-            return true
-        }
-    }
-
-    recStack[module] = false
-    return false
-}
-
-// checkLayerDependencies ensures layers depend only on inner layers
-func checkLayerDependencies() error {
-    // Layer hierarchy (outer -> inner)
-    // Infra can import: adapters, application, domain
-    // Adapters can import: application, domain
-    // Application can import: domain
-    // Domain can import: nothing (except stdlib)
-
-    layerRules := map[string][]string{
-        "/internal/domain/":      {},
-        "/internal/application/": {"/internal/domain/"},
-        "/internal/adapters/":    {"/internal/application/", "/internal/domain/"},
-        "/internal/infra/":       {"/internal/adapters/", "/internal/application/", "/internal/domain/"},
-    }
-
-    return filepath.Walk("modules", func(path string, info os.FileInfo, err error) error {
-        if err != nil {
-            return err
-        }
-
-        if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-            return nil
-        }
-
-        // Determine current layer
-        var currentLayer string
-        for layer := range layerRules {
-            if strings.Contains(path, layer) {
-                currentLayer = layer
-                break
-            }
-        }
-
-        if currentLayer == "" {
-            return nil
-        }
-
-        fset := token.NewFileSet()
-        f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
-        if err != nil {
-            return err
-        }
-
-        allowedLayers := layerRules[currentLayer]
-
-        for _, imp := range f.Imports {
-            importPath := strings.Trim(imp.Path.Value, "\"")
-
-            // Check if importing from a layer
-            for layer := range layerRules {
-                if !strings.Contains(importPath, layer) {
-                    continue
-                }
-
-                // Check if this layer is allowed
-                allowed := false
-                for _, allowedLayer := range allowedLayers {
-                    if layer == allowedLayer {
-                        allowed = true
-                        break
-                    }
-                }
-
-                if !allowed {
-                    return fmt.Errorf(
-                        "%s: %s cannot import from %s (layer violation)",
-                        path, currentLayer, layer,
-                    )
-                }
-            }
-        }
-
-        return nil
-    })
+    return rep.Summary()
 }
 ```
+
+Built-in validators:
+
+| Validator | Rule |
+|---|---|
+| `ContractPurityValidator` | `contracts/go/application/` must not import application or infrastructure packages |
+| `LibDependencyValidator` | `libs/ogl` and `mmw/` must not import module-specific code |
+| `DomainPurityValidator` | `internal/domain/` must not import adapters, infra, or application packages |
+| `ApplicationPurityValidator` | `internal/application/` must not import adapters or infra packages |
+
+Per-module checks are discovered via `mise run arch:check` in each module directory. They use `arch-go` for intra-module layer validation.
 
 ## Compile-Time Interface Assertion
 
-The first-line architecture test is a compile-time assertion in every module:
+The first-line architecture check is a compile-time assertion in every module file:
 
 ```go
-// modules/foomod/foomod.go
-var _ oglcore.Module = (*Module)(nil)
+// modules/todo/todo.go
+var _ pfcore.Module = (*Module)(nil)
 ```
 
 If `Start(ctx context.Context) error` is missing or has the wrong signature,
-the build fails immediately. This catches broken module implementations before
-any runtime test runs.
+the build fails immediately — before any runtime test runs.
 
-## Running Architecture Tests
+**Wrong (won't satisfy interface):**
+```go
+func (m Module) Start(ctx context.Context) error { ... }   // value receiver
+func (m *Module) Run(ctx context.Context) error { ... }    // wrong method name
+```
+
+**Right:**
+```go
+func (m *Module) Start(ctx context.Context) error { ... }  // pointer receiver, correct name
+```
+
+## Running Architecture Checks
 
 ```bash
-# Locally
-go run ./tools/arch-test
+# Via mmw-cli
+mmw check arch
 
-# In CI (fails build on violations)
-- name: Validate Architecture
-  run: go run ./tools/arch-test
-
-# Via mise
+# Via mise (from workspace root)
 mise run arch:check
+
+# Direct
+go run ./mmw/cmd/mmw-cli check arch
+```
+
+## Example Output
+
+```
+Architecture Validation
+────────────────────────────────────────────
+✓ todo         Validating service architecture boundaries
+✓ auth         Validating service architecture boundaries
+✓ ContractPurity     Contract definitions must not import application or infra packages
+✓ LibDependency      Shared libs must not import module-specific code
+✓ DomainPurity       Domain layer must not import adapters/infra/application
+✓ ApplicationPurity  Application layer must not import adapters/infra
+────────────────────────────────────────────
+All checks passed.
 ```
 
 ## Integration with CI
 
-Architecture tests should be:
-- **Required** - Block merge if tests fail
-- **Fast** - Run on every PR (~5-10 seconds)
-- **Clear** - Provide actionable error messages
-- **Comprehensive** - Cover all architectural rules
+```yaml
+arch-check:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.26'
+    - run: go build -o /usr/local/bin/mmw ./mmw/cmd/mmw-cli
+      working-directory: poc
+    - run: mmw check arch
+      working-directory: poc
+```
 
 Example CI failure message:
 ```
 ✗ Architecture validation failed
 
-Checking: module-isolation
-  ✗ FAILED: modules/barmod/internal/adapters/outbound/helper.go
-    imports modules/foomod/internal/domain/entitya
-    (cross-module internal import)
+✗ todo    Validating service architecture boundaries
+  modules/todo/internal/adapters/connect/handler.go
+    imports modules/auth/internal/domain (cross-module internal import)
 
-Fix: Remove direct import of foomod internals.
-      Use contracts/definitions/foomod instead.
-```
-
-## Additional Validation Rules
-
-**Naming Conventions:**
-```go
-// Ensure domain entities don't have infrastructure suffixes
-func checkNamingConventions() error {
-    forbiddenSuffixes := []string{"DTO", "Handler", "Controller", "Repository"}
-    // Check domain layer files...
-}
-```
-
-**Dependency Limits:**
-```go
-// Ensure services don't exceed dependency count
-func checkDependencyCount() error {
-    maxDependencies := 10
-    // Count imports per file...
-}
-```
-
-**Test Coverage:**
-```go
-// Ensure domain layer has high coverage
-func checkDomainCoverage() error {
-    minCoverage := 80.0 // percent
-    // Parse coverage.out...
-}
+Fix: Remove direct import of auth internals.
+     Depend on contracts/go/application/auth instead.
 ```

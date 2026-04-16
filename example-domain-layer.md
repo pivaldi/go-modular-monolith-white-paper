@@ -9,7 +9,7 @@ The aggregate root enforces all business invariants. Fields are private;
 state changes happen only through methods that validate and emit events.
 
 ```go
-// modules/foomod/internal/domain/foo.go
+// modules/todo/internal/domain/todo.go
 package domain
 
 import (
@@ -17,63 +17,75 @@ import (
     "github.com/google/uuid"
 )
 
-// Foo is the aggregate root. All state changes go through its methods.
-type Foo struct {
-    id          FooID
-    title       FooTitle
-    status      FooStatus
+// Todo is the aggregate root. All state changes go through its methods.
+type Todo struct {
+    id          TodoID
+    title       TaskTitle
+    description string
+    status      TaskStatus
     priority    Priority
-    ownerID     uuid.UUID
+    dueDate     *DueDate
     createdAt   time.Time
     updatedAt   time.Time
+    completedAt *time.Time
     events      []DomainEvent
+    userID      uuid.UUID
 }
 
-// NewFoo creates a new Foo, validates invariants, and emits FooCreated.
-func NewFoo(title FooTitle, priority Priority, ownerID uuid.UUID) (*Foo, error) {
-    if ownerID == uuid.Nil {
-        return nil, ErrOwnerRequired
+// NewTodo creates a new Todo aggregate and emits TodoCreated.
+func NewTodo(title TaskTitle, description string, priority Priority, dueDate *DueDate, userID uuid.UUID) *Todo {
+    id := NewTodoID()
+    now := time.Now()
+    todo := &Todo{
+        id: id, title: title, description: description,
+        status: TaskStatusPending, priority: priority, dueDate: dueDate,
+        createdAt: now, updatedAt: now, events: []DomainEvent{}, userID: userID,
     }
-    now := time.Now().UTC()
-    f := &Foo{
-        id:        NewFooID(),
-        title:     title,
-        status:    StatusPending,
-        priority:  priority,
-        ownerID:   ownerID,
-        createdAt: now,
-        updatedAt: now,
-    }
-    f.events = append(f.events, FooCreated{FooID: f.id, OwnerID: ownerID, At: now})
-    return f, nil
+    todo.addEvent(NewTodoCreatedEvent(id, userID, title, description, priority, dueDate))
+    return todo
 }
 
-// Complete transitions the Foo to completed status and emits FooCompleted.
-func (f *Foo) Complete() error {
-    if f.status == StatusCompleted {
-        return ErrAlreadyCompleted
+// Complete transitions the Todo to completed status and emits TodoCompleted.
+func (t *Todo) Complete() error {
+    if t.status.IsCancelled() {
+        return ErrCannotCompleteCancelled
     }
-    if f.status == StatusCancelled {
-        return ErrCancelledCannotComplete
+    if t.status.IsCompleted() {
+        return nil // idempotent
     }
-    f.status = StatusCompleted
-    f.updatedAt = time.Now().UTC()
-    f.events = append(f.events, FooCompleted{FooID: f.id, At: f.updatedAt})
+    t.status = TaskStatusCompleted
+    now := time.Now()
+    t.completedAt = &now
+    t.updatedAt = now
+    t.addEvent(NewTodoCompletedEvent(t.id, t.userID, now))
     return nil
 }
 
-// PopEvents returns accumulated domain events and clears the internal list.
-func (f *Foo) PopEvents() []DomainEvent {
-    evts := f.events
-    f.events = nil
-    return evts
+// Reopen transitions completed/cancelled Todo back to pending.
+func (t *Todo) Reopen() error {
+    if !t.status.IsCompleted() && !t.status.IsCancelled() {
+        return nil // already open, idempotent
+    }
+    previousStatus := t.status
+    t.status = TaskStatusPending
+    t.completedAt = nil
+    t.updatedAt = time.Now()
+    t.addEvent(NewTodoReopenedEvent(t.id, t.userID, previousStatus))
+    return nil
 }
 
+// Events returns the unpublished domain events.
+func (t *Todo) Events() []DomainEvent { return t.events }
+func (t *Todo) ClearEvents()          { t.events = []DomainEvent{} }
+
+// Snapshot returns the Memento — a plain-data view for the repository.
+func (t *Todo) Snapshot() TodoSnapshot { /* … */ }
+
 // Getters (no setters — mutations go through methods only)
-func (f *Foo) ID() FooID         { return f.id }
-func (f *Foo) Title() FooTitle   { return f.title }
-func (f *Foo) Status() FooStatus { return f.status }
-func (f *Foo) OwnerID() uuid.UUID { return f.ownerID }
+func (t *Todo) ID() TodoID          { return t.id }
+func (t *Todo) Title() TaskTitle    { return t.title }
+func (t *Todo) Status() TaskStatus  { return t.status }
+func (t *Todo) UserID() uuid.UUID   { return t.userID }
 ```
 
 ## Value Objects
@@ -82,67 +94,92 @@ Value objects are distinct named types. Validation lives in their
 constructors, not scattered across the application layer.
 
 ```go
-// modules/foomod/internal/domain/value_objects.go
+// modules/todo/internal/domain/value_objects.go
 package domain
 
-import "github.com/google/uuid"
-
-// FooID wraps uuid.UUID so the compiler catches id mix-ups.
-type FooID struct{ v uuid.UUID }
-
-func NewFooID() FooID { return FooID{v: uuid.New()} }
-func FooIDFromString(s string) (FooID, error) {
-    id, err := uuid.Parse(s)
-    if err != nil {
-        return FooID{}, ErrInvalidFooID
-    }
-    return FooID{v: id}, nil
-}
-func (id FooID) String() string  { return id.v.String() }
-func (id FooID) UUID() uuid.UUID { return id.v }
-
-// FooTitle is a validated non-empty string with a max length.
-type FooTitle struct{ v string }
-
-func NewFooTitle(s string) (FooTitle, error) {
-    if len(s) == 0 {
-        return FooTitle{}, ErrTitleEmpty
-    }
-    if len(s) > 200 {
-        return FooTitle{}, ErrTitleTooLong
-    }
-    return FooTitle{v: s}, nil
-}
-func (t FooTitle) String() string { return t.v }
-
-// FooStatus is an enum.
-type FooStatus string
-
-const (
-    StatusPending   FooStatus = "pending"
-    StatusActive    FooStatus = "active"
-    StatusCompleted FooStatus = "completed"
-    StatusCancelled FooStatus = "cancelled"
+import (
+    "strings"
+    "time"
+    "github.com/google/uuid"
 )
 
-// Priority is an enum with an ordering.
+const maxTitleLength = 200
+
+// TodoID is a UUID string wrapper so the compiler catches id mix-ups.
+type TodoID string
+
+func NewTodoID() TodoID { return TodoID(uuid.New().String()) }
+
+func ParseTodoID(id string) (TodoID, error) {
+    if id == "" {
+        return "", ErrInvalidID
+    }
+    if _, err := uuid.Parse(id); err != nil {
+        return "", ErrInvalidID
+    }
+    return TodoID(id), nil
+}
+
+func (id TodoID) String() string { return string(id) }
+
+// TaskTitle is a validated non-empty string with a max length.
+type TaskTitle struct{ value string }
+
+func NewTaskTitle(title string) (TaskTitle, error) {
+    trimmed := strings.TrimSpace(title)
+    if trimmed == "" || len(trimmed) > maxTitleLength {
+        return TaskTitle{}, ErrInvalidTitle
+    }
+    return TaskTitle{value: trimmed}, nil
+}
+
+func (t TaskTitle) String() string { return t.value }
+
+// TaskStatus is an enum generated by go-enum (pending, in_progress, completed, cancelled).
+// ENUM(pending, in_progress, completed, cancelled)
+type TaskStatus string
+
+func (s TaskStatus) IsCompleted() bool { return s == TaskStatusCompleted }
+func (s TaskStatus) IsCancelled() bool { return s == TaskStatusCancelled }
+func (s TaskStatus) CanTransitionTo(newStatus TaskStatus) bool {
+    if s == TaskStatusCompleted && newStatus != TaskStatusPending {
+        return false
+    }
+    if s == TaskStatusCancelled && newStatus == TaskStatusCompleted {
+        return false
+    }
+    return true
+}
+
+// Priority is an enum generated by go-enum (low, medium, high, urgent).
+// ENUM(low, medium, high, urgent)
 type Priority string
 
-const (
-    PriorityLow    Priority = "low"
-    PriorityMedium Priority = "medium"
-    PriorityHigh   Priority = "high"
-    PriorityUrgent Priority = "urgent"
-)
+func DefaultPriority() Priority { return PriorityMedium }
+
+// DueDate is a validated future timestamp.
+type DueDate struct{ value time.Time }
+
+func NewDueDate(date time.Time) (DueDate, error) {
+    if !date.After(time.Now()) {
+        return DueDate{}, ErrInvalidDueDate
+    }
+    return DueDate{value: date}, nil
+}
+
+func (d DueDate) Time() time.Time                    { return d.value }
+func (d DueDate) IsPast() bool                       { return time.Now().After(d.value) }
+func (d DueDate) IsApproaching(w time.Duration) bool { return time.Until(d.value) <= w }
 ```
 
 ## Domain Events
 
-Events are plain structs. They carry the minimum data needed for
-consumers. All events implement `DomainEvent`.
+Events are plain structs with a `BaseDomainEvent` embed for common fields.
+The `EventType()` string is the **semantic identifier** owned by the domain —
+the outbound adapter maps it to the Watermill routing key.
 
 ```go
-// modules/foomod/internal/domain/events.go
+// modules/todo/internal/domain/events.go
 package domain
 
 import (
@@ -150,117 +187,152 @@ import (
     "github.com/google/uuid"
 )
 
-// DomainEvent is the marker interface for all foo domain events.
+// Event type constants — semantic identifiers owned by the domain.
+// Adapters are responsible for mapping these to transport-layer routing keys.
+const (
+    EventTypeCreated          = "todo.created"
+    EventTypeUpdated          = "todo.updated"
+    EventTypeCompleted        = "todo.completed"
+    EventTypeReopened         = "todo.reopened"
+    EventTypeDeleted          = "todo.deleted"
+    EventTypeUserTasksDeleted = "todo.user_tasks_deleted"
+)
+
+// DomainEvent is the interface that all domain events must implement.
 type DomainEvent interface {
     EventType() string
+    GetAggregateID() string
+    GetUserID() uuid.UUID
+    GetOccurredAt() time.Time
 }
 
-// AllEvents lists the event type strings this module publishes.
-// The composition root uses this to configure the notifier module.
-var AllEvents = []string{
-    "foo.created",
-    "foo.completed",
-    "foo.cancelled",
-    "foo.updated",
+// BaseDomainEvent contains common fields for all domain events.
+type BaseDomainEvent struct {
+    AggregateID string
+    UserID      uuid.UUID
+    OccurredAt  time.Time
 }
 
-type FooCreated struct {
-    FooID   FooID
-    OwnerID uuid.UUID
-    At      time.Time
-}
-func (e FooCreated) EventType() string { return "foo.created" }
+func (e BaseDomainEvent) GetAggregateID() string  { return e.AggregateID }
+func (e BaseDomainEvent) GetUserID() uuid.UUID     { return e.UserID }
+func (e BaseDomainEvent) GetOccurredAt() time.Time { return e.OccurredAt }
 
-type FooCompleted struct {
-    FooID FooID
-    At    time.Time
+type TodoCreated struct {
+    BaseDomainEvent
+    Title       string
+    Description string
+    Priority    string
+    DueDate     *time.Time
 }
-func (e FooCompleted) EventType() string { return "foo.completed" }
 
-type FooUpdated struct {
-    FooID FooID
-    At    time.Time
+func (*TodoCreated) EventType() string { return EventTypeCreated }
+
+type TodoCompleted struct {
+    BaseDomainEvent
+    CompletedAt time.Time
 }
-func (e FooUpdated) EventType() string { return "foo.updated" }
+
+func (*TodoCompleted) EventType() string { return EventTypeCompleted }
+
+type TodoReopened struct {
+    BaseDomainEvent
+    PreviousStatus string
+}
+
+func (*TodoReopened) EventType() string { return EventTypeReopened }
+
+type TodoDeleted struct{ BaseDomainEvent }
+
+func (*TodoDeleted) EventType() string { return EventTypeDeleted }
 ```
 
 ## Snapshot Pattern
 
-The repository does not access private fields directly. The aggregate
-exposes a `Snapshot` for persistence and a `FromSnapshot` constructor
-for reconstitution:
+The repository accesses aggregate state through the `Snapshot()` method —
+never directly through private fields. `pgx.RowToStructByName` scans DB
+columns directly via `db` struct tags.
 
 ```go
-// modules/foomod/internal/domain/snapshot.go
+// modules/todo/internal/domain/snapshot.go
 package domain
 
-import "time"
+import (
+    "time"
+    "github.com/google/uuid"
+)
 
-// FooSnapshot is a plain-data representation used by the repository adapter.
-type FooSnapshot struct {
-    ID        string
-    Title     string
-    Status    string
-    Priority  string
-    OwnerID   string
-    CreatedAt time.Time
-    UpdatedAt time.Time
+// TodoSnapshot is the Memento for the Todo aggregate.
+// Fields use db tags so pgx.RowToStructByName can scan columns directly.
+// The events field is intentionally excluded — it is runtime state only.
+type TodoSnapshot struct {
+    ID          uuid.UUID  `db:"id"`
+    Title       string     `db:"title"`
+    Description string     `db:"description"`
+    Status      string     `db:"status"`
+    Priority    string     `db:"priority"`
+    DueDate     *time.Time `db:"due_date"`
+    CreatedAt   time.Time  `db:"created_at"`
+    UpdatedAt   time.Time  `db:"updated_at"`
+    CompletedAt *time.Time `db:"completed_at"`
+    UserID      uuid.UUID  `db:"user_id"`
 }
+```
 
-// ToSnapshot produces a persistence-ready snapshot (no domain logic).
-func (f *Foo) ToSnapshot() FooSnapshot {
-    return FooSnapshot{
-        ID:        f.id.String(),
-        Title:     f.title.String(),
-        Status:    string(f.status),
-        Priority:  string(f.priority),
-        OwnerID:   f.ownerID.String(),
-        CreatedAt: f.createdAt,
-        UpdatedAt: f.updatedAt,
-    }
-}
+`ReconstituteTodo` rebuilds the aggregate from a snapshot without emitting events:
 
-// FromSnapshot reconstitutes a Foo from a snapshot without emitting events.
-func FromSnapshot(s FooSnapshot) (*Foo, error) {
-    id, err := FooIDFromString(s.ID)
+```go
+// ReconstituteTodo reconstitutes a Todo from stored data (used by repository).
+// Panics if the snapshot contains values that violate basic type invariants —
+// this should never happen since the DB is the authoritative source of truth.
+func ReconstituteTodo(snap *TodoSnapshot) *Todo {
+    title, err := NewTaskTitle(snap.Title)
     if err != nil {
-        return nil, err
+        panic(fmt.Sprintf("ReconstituteTodo: invalid title from DB: %v", err))
     }
-    title, err := NewFooTitle(s.Title)
+    status, err := ParseTaskStatus(snap.Status)
     if err != nil {
-        return nil, err
+        panic(fmt.Sprintf("ReconstituteTodo: invalid status from DB: %v", err))
     }
-    ownerID, err := uuid.Parse(s.OwnerID)
+    priority, err := ParsePriority(snap.Priority)
     if err != nil {
-        return nil, err
+        panic(fmt.Sprintf("ReconstituteTodo: invalid priority from DB: %v", err))
     }
-    return &Foo{
-        id:        id,
-        title:     title,
-        status:    FooStatus(s.Status),
-        priority:  Priority(s.Priority),
-        ownerID:   ownerID,
-        createdAt: s.CreatedAt,
-        updatedAt: s.UpdatedAt,
-    }, nil
+    var dueDate *DueDate
+    if snap.DueDate != nil {
+        dd := DueDate{value: *snap.DueDate}
+        dueDate = &dd
+    }
+    return &Todo{
+        id: TodoID(snap.ID.String()), title: title, description: snap.Description,
+        status: status, priority: priority, dueDate: dueDate,
+        createdAt: snap.CreatedAt, updatedAt: snap.UpdatedAt, completedAt: snap.CompletedAt,
+        events: []DomainEvent{}, userID: snap.UserID,
+    }
 }
 ```
 
 ## Domain Errors
 
 ```go
-// modules/foomod/internal/domain/errors.go
+// modules/todo/internal/domain/errors.go
 package domain
 
 import "errors"
 
 var (
-    ErrOwnerRequired           = errors.New("owner is required")
-    ErrTitleEmpty              = errors.New("title cannot be empty")
-    ErrTitleTooLong            = errors.New("title exceeds 200 characters")
-    ErrInvalidFooID            = errors.New("invalid foo id")
-    ErrAlreadyCompleted        = errors.New("foo is already completed")
-    ErrCancelledCannotComplete = errors.New("cancelled foo cannot be completed")
-    ErrNotFound                = errors.New("foo not found")
+    // Validation errors
+    ErrInvalidTitle   = errors.New("title must be between 1 and 200 characters")
+    ErrInvalidDueDate = errors.New("due date must be in the future")
+    ErrInvalidID      = errors.New("invalid todo ID")
+    // ErrInvalidPriority and ErrInvalidTaskStatus are generated by go-enum
+
+    // Business rule errors
+    ErrCannotCompleteCancelled = errors.New("cannot complete a cancelled task")
+    ErrCannotModifyCompleted   = errors.New("cannot modify a completed task")
+    ErrTodoNotFound            = errors.New("todo not found")
+    ErrTodoAlreadyExists       = errors.New("todo already exists")
+
+    // State transition errors
+    ErrInvalidStatusTransition = errors.New("invalid status transition")
 )
 ```
